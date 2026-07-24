@@ -1,0 +1,87 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  "lsp": true,
+
+  "permission": {
+    "*": "ask",
+    "external_directory": "deny",
+    "webfetch": "ask",
+    "websearch": "ask",
+    "bash": {
+      "*": "ask",
+      "git status*": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "grep *": "allow",
+      "rg *": "allow",
+      "find *": "allow",
+      "ls *": "allow",
+      "go test*": "allow",
+      "go fmt*": "allow",
+      "go vet*": "allow",
+      "docker build*": "ask",
+      "docker run*": "ask",
+      "docker compose*": "ask",
+      "docker logs*": "allow",
+      "docker images*": "allow",
+      "docker inspect*": "allow",
+      "rm -rf *": "deny",
+      "git push*": "deny",
+      "ssh *": "deny",
+      "scp *": "deny"
+    }
+  },
+
+  "agent": {
+    "ardoise-orchestrator": {
+      "description": "Document router & clerk for the Ardoise project. Routes artifacts between agents, writes story.md and closure.md, negotiates with reviewers using cross-sprint context only. Never reads source code. Cannot override reviewer verdicts. Uses grill-me at sprint start.",
+      "mode": "primary",
+      "temperature": 0.1,
+      "steps": 40,
+      "permission": {
+        "edit": {
+          "*": "deny",
+          "docs/implementation/**": "allow",
+          "docs/dat.md": "allow",
+          "docs/man.md": "allow",
+          "AGENTS.md": "allow",
+          "README.md": "allow",
+          "LICENSE": "allow",
+          "docs/decisions/**": "allow",
+          "opencode.jsonc": "ask"
+        },
+        "bash": {
+          "*": "ask",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "git log*": "allow",
+          "grep *": "allow",
+          "rg *": "allow",
+          "find *": "allow",
+          "ls *": "allow"
+        },
+        "task": {
+          "*": "deny",
+          "ardoise-dpo": "allow",
+          "ardoise-ciso": "allow",
+          "ardoise-devsecops": "allow",
+          "ardoise-qa": "allow",
+          "ardoise-release": "allow",
+          "ardoise-peer-reviewer": "allow",
+          "ardoise-integration-tester": "allow"
+        }
+      }
+    },
+    "ardoise-peer-reviewer": {
+      "description": "Senior Go dev : revue de code impitoyable contre Clean Code, SOLID, Go Proverbs, Pragmatic Programmer. Note la maintenabilité et détecte les bugs. Adapté au code crypto/réseau/conteneur d'ardoise.",
+      "mode": "subagent",
+      "temperature": 0.1
+    },
+    "ardoise-integration-tester": {
+      "description": "Valide Ardoise end-to-end sur Linux et Docker : déploiement bare-metal, build conteneur, push/get, chiffrement, TLS, ICAP, journalisation, marquage, purge, non-root, read-only rootfs, UBI.",
+      "mode": "subagent",
+      "temperature": 0.1
+    }
+  }
+}

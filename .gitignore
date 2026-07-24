@@ -1,0 +1,48 @@
+# Go
+*.o
+*.a
+*.so
+*.exe
+*.test
+*.out
+/bin/
+/dist/
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets and keys
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.env
+*.env.*
+
+# Ardoise runtime
+/ardoise
+/cache/
+/data/
+
+# Build artifacts
+*.tar.gz
+*.zip
+*.sig
+*.sbom.json
+*.provenance.json
+
+# Docker
+.env
+docker-compose.override.yml
