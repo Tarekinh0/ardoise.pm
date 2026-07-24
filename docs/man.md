@@ -148,8 +148,13 @@ ecoute  = "10.0.12.4:8443"
 [auth]
 # AUTH-1 "mtls-materiel" | AUTH-2 "mtls" | AUTH-3 "jeton" | AUTH-4 "declaratif"
 mecanisme    = "mtls"
-ac_clients   = "/etc/ardoise/ac-clients.pem"
-champ_identite = "CN"
+ac_clients   = "/etc/ardoise/ac-clients.pem"   # requis avec "mtls" et "mtls-materiel"
+champ_identite = "CN"                          # "CN" | "SAN:email" | "SAN:dns" | "SAN:uri"
+# AUTH-3 uniquement — requis avec mecanisme = "jeton", refusé sinon :
+# jetons     = "/etc/ardoise/jetons.json"      # table JSON identité → empreinte SHA-256
+#                                              # hexadécimale du jeton (jamais le jeton
+#                                              # lui-même), droits 0600, lue au démarrage.
+#                                              # Exemple : { "alice.durand": "9f86d081…" }
 # En mode "analyse", la source d'identités doit être distincte du SI d'administration.
 
 [contenu]
@@ -162,6 +167,10 @@ support        = "memoire"   # RET-2 "memoire" | RET-3 "disque-chiffre"
 lecture_unique = "au-choix"  # RET-1 "imposee" | "au-choix" | "interdite"
 duree_max      = "24h"       # TTL-1 "1h" | TTL-2 "24h" | TTL-3 "168h"
 duree_defaut   = "1h"
+# RET-3 uniquement — refusés avec support = "memoire" :
+# repertoire   = "/var/lib/ardoise"          # emplacement du magasin sur support
+# cle_magasin  = "/etc/ardoise/magasin.cle"  # clé chiffrant le magasin (32 octets
+#                                            # bruts ou 64 hexadécimaux, droits 0600)
 
 [cache]
 # CACHE-1 "interdit" | CACHE-2 "borne" | CACHE-3 "libre"

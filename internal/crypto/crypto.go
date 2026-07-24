@@ -1,0 +1,353 @@
+// Package crypto met en œuvre l'inventaire cryptographique d'ardoise.pm
+// (docs/dat.md, annexe B) pour le mode aveugle : chiffrement authentifié
+// AES-256-GCM, dérivation de clé Argon2id, identifiants, empreintes et
+// hygiène mémoire.
+//
+// # Schémas de protection (docs/dat.md §5.4)
+//
+//   - CHIF-2 (« cle ») : clé aléatoire de 256 bits à usage unique, générée
+//     par le client. La clé constitue le fragment de l'identifiant et ne
+//     transite jamais vers le serveur.
+//
+//   - CHIF-3 (« motdepasse ») : clé dérivée d'un mot de passe utilisateur
+//     par Argon2id (mémoire 64 Mio, 3 itérations, parallélisme 4, sel
+//     aléatoire de 128 bits stocké avec l'objet chiffré — le sel n'est pas
+//     un secret). L'identifiant ne comporte pas de fragment.
+//
+//   - CHIF-1 (« cle+motdepasse ») : deux secrets requis pour ouvrir. Une
+//     clé aléatoire K de 256 bits (fragment de l'identifiant) et un mot de
+//     passe P sont combinés ainsi :
+//
+//     cléAEAD = HKDF-SHA256(secret = K ‖ Argon2id(P, sel), sel, info)
+//
+//     Justification : HKDF (RFC 5869) repose exclusivement sur HMAC-SHA256,
+//     donc sur la primitive SHA-256 de l'annexe B. L'étape d'extraction est
+//     une PRF sur la concaténation de deux secrets de longueur fixe
+//     (32 octets chacun, aucune ambiguïté de découpage) : retrouver la clé
+//     AEAD exige la connaissance des deux ; qui ne détient que l'identifiant
+//     fait face au coût Argon2id complet sur le mot de passe, qui ne détient
+//     que le mot de passe fait face aux 256 bits d'entropie de K.
+//
+// # Format du chiffré
+//
+// Le chiffré est opaque pour le serveur ; sa structure n'est lue que par le
+// client. L'octet de version encode le schéma employé, ce qui permet au
+// client de récupération de savoir quel matériel demander :
+//
+//	CHIF-2 : version(0x01) ‖ nonce(12) ‖ scellé AES-256-GCM
+//	CHIF-3 : version(0x02) ‖ sel(16) ‖ nonce(12) ‖ scellé AES-256-GCM
+//	CHIF-1 : version(0x03) ‖ sel(16) ‖ nonce(12) ‖ scellé AES-256-GCM
+//	CHIF-4 : version(0x04) ‖ nonce(12) ‖ scellé AES-256-GCM
+//
+// CHIF-4 (mode analysé, docs/dat.md ADR-004) partage la disposition de
+// CHIF-2 — clé aléatoire de 256 bits à usage unique — mais porte un octet de
+// version propre : le chiffrement a été opéré par le serveur après verdict
+// d'analyse, non par le poste émetteur, et cette provenance reste lisible
+// dans le chiffré lui-même (auditable a posteriori). Le déchiffrement est
+// identique à CHIF-2 : le format est auto-descriptif, le client de
+// récupération n'a pas à connaître le mode de l'instance d'origine.
+//
+// L'en-tête (version et sel) est couvert par les données additionnelles
+// authentifiées (AAD) du GCM : toute altération de l'en-tête fait échouer le
+// déchiffrement au même titre qu'une altération du corps. Le nonce de
+// 96 bits provient de crypto/rand ; la clé étant à usage unique par ardoise,
+// le risque de réutilisation de nonce est neutralisé par construction.
+// Aucune compression n'est appliquée avant chiffrement (annexe B).
+//
+// # Hygiène mémoire
+//
+// Clés et mots de passe ne circulent qu'en []byte, jamais en string, et
+// s'effacent explicitement via Effacer après usage. Aucun type de ce paquet
+// n'expose de méthode String sur du matériel de clé. La limite du
+// ramasse-miettes de Go est documentée et assumée (docs/dat.md A.3-2).
+package crypto
+
+import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hkdf"
+	"crypto/rand"
+	"crypto/sha256"
+	"errors"
+	"fmt"
+
+	"golang.org/x/crypto/argon2"
+)
+
+// Tailles des matériels cryptographiques (docs/dat.md, annexe B).
+const (
+	TailleCle   = 32 // clé AES-256
+	TailleNonce = 12 // nonce GCM de 96 bits
+	TailleSel   = 16 // sel Argon2id de 128 bits
+)
+
+// Paramètres Argon2id imposés par l'annexe B : mémoire 64 Mio,
+// 3 itérations, parallélisme 4.
+const (
+	Argon2Memoire      = 64 * 1024 // en Kio
+	Argon2Iterations   = 3
+	Argon2Parallelisme = 4
+)
+
+// Octets de version du chiffré : un par schéma de protection.
+const (
+	VersionCle           byte = 0x01 // CHIF-2
+	VersionMotDePasse    byte = 0x02 // CHIF-3
+	VersionCleMotDePasse byte = 0x03 // CHIF-1
+	VersionServeur       byte = 0x04 // CHIF-4 — chiffré par le serveur après analyse
+)
+
+// infoCHIF1 lie la dérivation HKDF du schéma CHIF-1 au produit et à la
+// version du format, afin qu'aucune autre dérivation ne puisse produire la
+// même clé à partir des mêmes secrets.
+const infoCHIF1 = "ardoise.pm CHIF-1 v1"
+
+// ErrDechiffrement est l'unique erreur de déchiffrement : elle ne distingue
+// jamais un mauvais matériel de clé d'un contenu altéré, le GCM ne le
+// permettant pas et cette indistinction n'exposant aucun canal d'inférence.
+var ErrDechiffrement = errors.New("déchiffrement impossible : matériel de clé incorrect ou contenu altéré")
+
+// Effacer met à zéro chaque tampon fourni. À appeler (au besoin en defer)
+// sur tout matériel de clé et tout mot de passe dès qu'il cesse de servir.
+// Best effort : le ramasse-miettes peut conserver des copies (A.3-2).
+func Effacer(tampons ...[]byte) {
+	for _, tampon := range tampons {
+		for i := range tampon {
+			tampon[i] = 0
+		}
+	}
+}
+
+// ChiffrerCle chiffre selon CHIF-2 : clé aléatoire à usage unique. La clé
+// retournée est le matériel du fragment d'identifiant ; l'appelant l'efface
+// après usage.
+func ChiffrerCle(clair []byte) (chiffre, cle []byte, err error) {
+	cle = make([]byte, TailleCle)
+	if _, err := rand.Read(cle); err != nil {
+		return nil, nil, fmt.Errorf("génération de la clé : %w", err)
+	}
+	chiffre, err = sceller(VersionCle, nil, cle, clair)
+	if err != nil {
+		Effacer(cle)
+		return nil, nil, err
+	}
+	return chiffre, cle, nil
+}
+
+// ChiffrerMotDePasse chiffre selon CHIF-3 : clé dérivée du mot de passe par
+// Argon2id, sel aléatoire stocké dans l'en-tête du chiffré.
+func ChiffrerMotDePasse(clair, motDePasse []byte) (chiffre []byte, err error) {
+	if len(motDePasse) == 0 {
+		return nil, errors.New("mot de passe requis par le schéma CHIF-3")
+	}
+	sel := make([]byte, TailleSel)
+	if _, err := rand.Read(sel); err != nil {
+		return nil, fmt.Errorf("génération du sel : %w", err)
+	}
+	cleAEAD := deriverMotDePasse(motDePasse, sel)
+	defer Effacer(cleAEAD)
+	return sceller(VersionMotDePasse, sel, cleAEAD, clair)
+}
+
+// ChiffrerCleMotDePasse chiffre selon CHIF-1 : clé aléatoire ET mot de
+// passe, tous deux nécessaires à l'ouverture. La clé retournée est le
+// matériel du fragment d'identifiant.
+func ChiffrerCleMotDePasse(clair, motDePasse []byte) (chiffre, cle []byte, err error) {
+	if len(motDePasse) == 0 {
+		return nil, nil, errors.New("mot de passe requis par le schéma CHIF-1")
+	}
+	cle = make([]byte, TailleCle)
+	if _, err := rand.Read(cle); err != nil {
+		return nil, nil, fmt.Errorf("génération de la clé : %w", err)
+	}
+	sel := make([]byte, TailleSel)
+	if _, err := rand.Read(sel); err != nil {
+		Effacer(cle)
+		return nil, nil, fmt.Errorf("génération du sel : %w", err)
+	}
+	cleAEAD, err := deriverCleMotDePasse(cle, motDePasse, sel)
+	if err != nil {
+		Effacer(cle)
+		return nil, nil, err
+	}
+	defer Effacer(cleAEAD)
+	chiffre, err = sceller(VersionCleMotDePasse, sel, cleAEAD, clair)
+	if err != nil {
+		Effacer(cle)
+		return nil, nil, err
+	}
+	return chiffre, cle, nil
+}
+
+// ChiffrerServeur chiffre selon CHIF-4 (mode analysé) : même mécanique que
+// CHIF-2 — clé aléatoire de 256 bits à usage unique — sous l'octet de
+// version 0x04 qui consigne la provenance serveur du chiffrement (ADR-004,
+// cécité a posteriori). La clé retournée est remise à l'émetteur dans la
+// réponse de dépôt puis effacée par l'appelant : elle ne doit jamais être
+// conservée ni journalisée côté serveur.
+func ChiffrerServeur(clair []byte) (chiffre, cle []byte, err error) {
+	cle = make([]byte, TailleCle)
+	if _, err := rand.Read(cle); err != nil {
+		return nil, nil, fmt.Errorf("génération de la clé : %w", err)
+	}
+	chiffre, err = sceller(VersionServeur, nil, cle, clair)
+	if err != nil {
+		Effacer(cle)
+		return nil, nil, err
+	}
+	return chiffre, cle, nil
+}
+
+// Schema retourne l'octet de version du chiffré, qui encode le schéma de
+// protection employé au dépôt.
+func Schema(chiffre []byte) (byte, error) {
+	if len(chiffre) == 0 {
+		return 0, errors.New("chiffré vide")
+	}
+	switch v := chiffre[0]; v {
+	case VersionCle, VersionMotDePasse, VersionCleMotDePasse, VersionServeur:
+		return v, nil
+	default:
+		return 0, fmt.Errorf("version de chiffré inconnue (0x%02x)", v)
+	}
+}
+
+// BesoinCle indique si le schéma exige le matériel de clé du fragment
+// d'identifiant.
+func BesoinCle(version byte) bool {
+	return version == VersionCle || version == VersionCleMotDePasse || version == VersionServeur
+}
+
+// BesoinMotDePasse indique si le schéma exige un mot de passe.
+func BesoinMotDePasse(version byte) bool {
+	return version == VersionMotDePasse || version == VersionCleMotDePasse
+}
+
+// Dechiffrer ouvre un chiffré quel que soit son schéma, avec le matériel
+// fourni : cle est le matériel du fragment d'identifiant (nil s'il n'y en a
+// pas), motDePasse le mot de passe saisi (nil sans mot de passe). Le clair
+// est retourné intact ; toute altération ou tout matériel erroné produit
+// ErrDechiffrement.
+func Dechiffrer(chiffre, cle, motDePasse []byte) ([]byte, error) {
+	version, err := Schema(chiffre)
+	if err != nil {
+		return nil, err
+	}
+	if BesoinCle(version) && len(cle) != TailleCle {
+		return nil, errors.New("matériel de clé absent ou de taille inattendue")
+	}
+	if BesoinMotDePasse(version) && len(motDePasse) == 0 {
+		return nil, errors.New("mot de passe requis par le schéma de ce chiffré")
+	}
+
+	enTete, sel, nonce, scelle, err := decouper(chiffre)
+	if err != nil {
+		return nil, err
+	}
+
+	var cleAEAD []byte
+	switch version {
+	case VersionCle, VersionServeur:
+		cleAEAD = append([]byte(nil), cle...)
+	case VersionMotDePasse:
+		cleAEAD = deriverMotDePasse(motDePasse, sel)
+	case VersionCleMotDePasse:
+		cleAEAD, err = deriverCleMotDePasse(cle, motDePasse, sel)
+		if err != nil {
+			return nil, err
+		}
+	}
+	defer Effacer(cleAEAD)
+
+	gcm, err := nouveauGCM(cleAEAD)
+	if err != nil {
+		return nil, err
+	}
+	clair, err := gcm.Open(nil, nonce, scelle, enTete)
+	if err != nil {
+		return nil, ErrDechiffrement
+	}
+	return clair, nil
+}
+
+// deriverMotDePasse dérive la clé AEAD d'un mot de passe (CHIF-3), selon
+// les paramètres Argon2id de l'annexe B.
+func deriverMotDePasse(motDePasse, sel []byte) []byte {
+	return argon2.IDKey(motDePasse, sel, Argon2Iterations, Argon2Memoire, Argon2Parallelisme, TailleCle)
+}
+
+// deriverCleMotDePasse combine la clé aléatoire et le mot de passe (CHIF-1) :
+// cléAEAD = HKDF-SHA256(K ‖ Argon2id(P, sel), sel, info). Voir le
+// commentaire de paquet pour la justification cryptographique.
+func deriverCleMotDePasse(cle, motDePasse, sel []byte) ([]byte, error) {
+	derivee := deriverMotDePasse(motDePasse, sel)
+	defer Effacer(derivee)
+	secret := make([]byte, 0, len(cle)+len(derivee))
+	secret = append(secret, cle...)
+	secret = append(secret, derivee...)
+	defer Effacer(secret)
+	cleAEAD, err := hkdf.Key(sha256.New, secret, sel, infoCHIF1, TailleCle)
+	if err != nil {
+		return nil, fmt.Errorf("dérivation CHIF-1 : %w", err)
+	}
+	return cleAEAD, nil
+}
+
+// sceller chiffre le clair sous la clé AEAD donnée, avec un nonce frais de
+// crypto/rand, et assemble le format documenté : version ‖ sel? ‖ nonce ‖
+// scellé. L'en-tête (version et sel) est passé en AAD.
+func sceller(version byte, sel, cleAEAD, clair []byte) ([]byte, error) {
+	nonce := make([]byte, TailleNonce)
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("génération du nonce : %w", err)
+	}
+	return scellerAvecNonce(version, sel, nonce, cleAEAD, clair)
+}
+
+// scellerAvecNonce est le cœur déterministe de sceller, isolé pour que les
+// tests puissent produire des vecteurs à nonce fixé. Ne jamais l'appeler
+// hors tests avec un nonce qui ne provient pas de crypto/rand.
+func scellerAvecNonce(version byte, sel, nonce, cleAEAD, clair []byte) ([]byte, error) {
+	gcm, err := nouveauGCM(cleAEAD)
+	if err != nil {
+		return nil, err
+	}
+	enTete := append([]byte{version}, sel...)
+	chiffre := make([]byte, 0, len(enTete)+len(nonce)+len(clair)+gcm.Overhead())
+	chiffre = append(chiffre, enTete...)
+	chiffre = append(chiffre, nonce...)
+	return gcm.Seal(chiffre, nonce, clair, enTete), nil
+}
+
+// decouper sépare un chiffré en en-tête (version ‖ sel), sel, nonce et
+// corps scellé, selon le format du schéma.
+func decouper(chiffre []byte) (enTete, sel, nonce, scelle []byte, err error) {
+	version := chiffre[0]
+	tailleSel := 0
+	if version == VersionMotDePasse || version == VersionCleMotDePasse {
+		tailleSel = TailleSel
+	}
+	debutNonce := 1 + tailleSel
+	debutScelle := debutNonce + TailleNonce
+	// Le corps scellé comporte au minimum l'étiquette GCM (16 octets).
+	if len(chiffre) < debutScelle+16 {
+		return nil, nil, nil, nil, ErrDechiffrement
+	}
+	enTete = chiffre[:debutNonce]
+	sel = chiffre[1:debutNonce]
+	nonce = chiffre[debutNonce:debutScelle]
+	scelle = chiffre[debutScelle:]
+	return enTete, sel, nonce, scelle, nil
+}
+
+func nouveauGCM(cleAEAD []byte) (cipher.AEAD, error) {
+	bloc, err := aes.NewCipher(cleAEAD)
+	if err != nil {
+		return nil, fmt.Errorf("initialisation AES : %w", err)
+	}
+	gcm, err := cipher.NewGCM(bloc)
+	if err != nil {
+		return nil, fmt.Errorf("initialisation GCM : %w", err)
+	}
+	return gcm, nil
+}
