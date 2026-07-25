@@ -70,6 +70,38 @@ func lireMotDePasseTerminal(invite string) ([]byte, error) {
 	return motDePasse, nil
 }
 
+// confirmerTerminal pose une question fermée sur /dev/tty, la réponse par
+// défaut étant NON : seuls « o », « O », « oui » et « OUI » valent
+// acceptation. La question passe par le terminal de contrôle — jamais par
+// l'entrée standard, qui porte le contenu à déposer.
+func confirmerTerminal(question string) (bool, error) {
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return false, errors.New("aucun terminal disponible pour confirmer")
+	}
+	defer tty.Close()
+	fmt.Fprint(tty, question)
+	var reponse []byte
+	octet := make([]byte, 1)
+	for {
+		n, err := tty.Read(octet)
+		if n > 0 {
+			if octet[0] == '\n' || octet[0] == '\r' {
+				break
+			}
+			reponse = append(reponse, octet[0])
+		}
+		if err != nil {
+			break
+		}
+	}
+	switch string(reponse) {
+	case "o", "O", "oui", "OUI", "Oui":
+		return true, nil
+	}
+	return false, nil
+}
+
 func ioctlTermios(fd uintptr, requete uint, termios *syscall.Termios) error {
 	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, uintptr(requete), uintptr(unsafe.Pointer(termios)))
 	if errno != 0 {

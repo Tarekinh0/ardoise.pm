@@ -1,0 +1,66 @@
+# Ardoise — exclusion du contexte de build Docker (DPO-P-001-1)
+# Aucun fichier source, clef, identifiant, ou données de test ne doit
+# entrer dans le contexte de build de l'image de production.
+
+# Données temporaires et de test
+tmp/
+testdata/
+*.test
+*.out
+
+# Secrets et clefs
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.env
+*.env.*
+
+# Artifacts de build
+/bin/
+/dist/
+ardoise
+*.tar.gz
+*.zip
+*.sig
+*.sbom.json
+*.provenance.json
+
+# Runtime
+/cache/
+/data/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.claude/
+.opencode/
+
+# Documentation (pas utile dans l'image)
+docs/
+README.md
+report.md
+AGENTS.md
+opencode.jsonc
+
+# Docker compose et CI
+docker-compose.yml
+docker-compose.override.yml
+.github/
+
+# Fichiers de build
+build.sh
+verifier.sh
+Dockerfile
+.dockerignore

@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net/url"
 	"os"
@@ -10,6 +12,7 @@ import (
 
 	"ardoise.pm/internal/client"
 	"ardoise.pm/internal/config"
+	"ardoise.pm/internal/server"
 )
 
 // messagePKCS11 : le support matériel exige un module PKCS#11 natif,
@@ -18,14 +21,61 @@ import (
 // une explication plutôt qu'ignorée en silence.
 const messagePKCS11 = "PKCS#11 non pris en charge dans cette version (nécessite cgo, incompatible binaire statique — voir dossier de risques)"
 
-// preparerClient résout l'instance cible (option --endpoint, variable
-// ARDOISE_ENDPOINT, configuration client) et le matériel d'authentification
-// (certificat client, jeton, identité déclarée), puis construit le client
-// d'API. Jamais d'InsecureSkipVerify, en aucune circonstance.
-func preparerClient(ctx *Contexte, com *optionsCommunes, auth *optionsAuthClient) (*client.Client, error) {
+// configTLSClient construit la configuration TLS du client : AC dédiée
+// (--ac, ARDOISE_AC, configuration client) ou magasin système, certificat
+// client optionnel. Jamais d'InsecureSkipVerify, en aucune circonstance.
+//
+// Épinglage (TLS-1) : dès qu'une AC est fournie, elle devient l'unique
+// autorité de confiance — RootCAs remplace intégralement le magasin
+// système, sans repli. Un certificat d'instance émis par toute autre
+// autorité, y compris une autorité publique par ailleurs reconnue par le
+// poste, est refusé.
+//
+// PR-102 : la fonction a été déplacée de info.go vers client.go pour
+// rapprocher la définition de son site d'appel (resoudreConfigTLSClient).
+func configTLSClient(cheminAC, cheminCertificat, cheminCle string) (*tls.Config, error) {
+	configTLS := &tls.Config{
+		// TLS 1.2 minimum : une instance en TLS-3 reste joignable ; les
+		// suites 1.2 sont restreintes à la liste ANSSI.
+		MinVersion:   tls.VersionTLS12,
+		CipherSuites: server.SuitesTLS12(),
+	}
+	if cheminAC != "" {
+		pemAC, err := os.ReadFile(cheminAC)
+		if err != nil {
+			return nil, fmt.Errorf("lecture de l'autorité de certification : %v", err)
+		}
+		magasin := x509.NewCertPool()
+		if !magasin.AppendCertsFromPEM(pemAC) {
+			return nil, fmt.Errorf("autorité de certification %s : aucun certificat PEM exploitable", cheminAC)
+		}
+		configTLS.RootCAs = magasin
+	}
+	if (cheminCertificat == "") != (cheminCle == "") {
+		return nil, fmt.Errorf("« --certificat » et « --cle » vont de pair")
+	}
+	if cheminCertificat != "" {
+		certificat, err := tls.LoadX509KeyPair(cheminCertificat, cheminCle)
+		if err != nil {
+			return nil, fmt.Errorf("chargement du certificat client : %v", err)
+		}
+		configTLS.Certificates = []tls.Certificate{certificat}
+	}
+	return configTLS, nil
+}
+
+// resoudreConfigTLSClient résout la configuration client de connexion :
+// chargement du fichier de configuration client, résolution de l'instance
+// cible (option --endpoint, variable ARDOISE_ENDPOINT, configuration client),
+// validation de l'URL et du schéma, vérification PKCS#11, résolution des
+// références de certificats et de l'AC, construction de la configuration
+// TLS. Retourne la configuration client chargée, la configuration TLS, et
+// l'endpoint résolu. Fonction partagée par preparerClient et cmdInfo,
+// extraite pour éliminer la duplication (PR-102).
+func resoudreConfigTLSClient(ctx *Contexte, com *optionsCommunes, auth *optionsAuthClient) (*config.Client, *tls.Config, string, error) {
 	configClient, err := config.ChargerClient(ctx.CheminsConfigClient, ctx.Getenv)
 	if err != nil {
-		return nil, Erreurf(CodeErreur, "%v", err)
+		return nil, nil, "", Erreurf(CodeErreur, "%v", err)
 	}
 
 	endpoint := com.endpoint
@@ -33,18 +83,18 @@ func preparerClient(ctx *Contexte, com *optionsCommunes, auth *optionsAuthClient
 		endpoint = configClient.Endpoint
 	}
 	if endpoint == "" {
-		return nil, erreurUsage("aucune instance indiquée : utilisez « --endpoint », la variable ARDOISE_ENDPOINT ou la configuration client")
+		return nil, nil, "", erreurUsage("aucune instance indiquée : utilisez « --endpoint », la variable ARDOISE_ENDPOINT ou la configuration client")
 	}
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Host == "" {
-		return nil, erreurUsage("endpoint « %s » invalide (attendu : https://hôte:port)", endpoint)
+		return nil, nil, "", erreurUsage("endpoint « %s » invalide (attendu : https://hôte:port)", endpoint)
 	}
 	if u.Scheme != "https" {
-		return nil, erreurUsage("endpoint « %s » refusé : seul le schéma https est pris en charge, les flux sont toujours protégés par TLS", endpoint)
+		return nil, nil, "", erreurUsage("endpoint « %s » refusé : seul le schéma https est pris en charge, les flux sont toujours protégés par TLS", endpoint)
 	}
 
 	if premierNonVide(auth.pkcs11, configClient.PKCS11) != "" {
-		return nil, Erreurf(CodeErreur, "%s", messagePKCS11)
+		return nil, nil, "", Erreurf(CodeErreur, "%s", messagePKCS11)
 	}
 
 	ac := premierNonVide(auth.ac, configClient.AC)
@@ -54,15 +104,30 @@ func preparerClient(ctx *Contexte, com *optionsCommunes, auth *optionsAuthClient
 	}
 	configTLS, err := configTLSClient(ac, certificat, cle)
 	if err != nil {
-		return nil, Erreurf(CodeErreur, "%v", err)
+		return nil, nil, "", Erreurf(CodeErreur, "%v", err)
 	}
+
+	return configClient, configTLS, endpoint, nil
+}
+
+// preparerClient résout l'instance cible et le matériel d'authentification
+// (certificat client, jeton, identité déclarée), puis construit le client
+// d'API. Jamais d'InsecureSkipVerify, en aucune circonstance. Retourne
+// également la configuration client chargée (utile pour la résolution
+// d'annuaire dans cmdPush, PR-103).
+func preparerClient(ctx *Contexte, com *optionsCommunes, auth *optionsAuthClient) (*client.Client, *config.Client, error) {
+	configClient, configTLS, endpoint, err := resoudreConfigTLSClient(ctx, com, auth)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	cl := client.Nouveau(endpoint, configTLS)
 
 	cheminJeton := premierNonVide(auth.jeton, configClient.Jeton)
 	if cheminJeton != "" {
 		jeton, err := lireJeton(ctx, cheminJeton)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		cl.DefinirJeton(jeton)
 	}
@@ -70,10 +135,10 @@ func preparerClient(ctx *Contexte, com *optionsCommunes, auth *optionsAuthClient
 	// Identité déclarée (AUTH-4) : préparée seulement si aucun autre
 	// matériel n'est fourni — le client ne l'enverra que si la politique de
 	// l'instance retient l'identification déclarative.
-	if certificat == "" && cheminJeton == "" {
+	if configClient.Certificat == "" && cheminJeton == "" {
 		cl.DeclarerIdentite(identiteLocale(ctx))
 	}
-	return cl, nil
+	return cl, configClient, nil
 }
 
 // premierNonVide retourne la première valeur non vide : l'option de ligne
@@ -118,6 +183,8 @@ func lireJeton(ctx *Contexte, chemin string) ([]byte, error) {
 // la syntaxe admise par le serveur ([a-z0-9._-], 64 caractères au plus) —
 // l'identité étant déclarative et non vérifiée, cette normalisation
 // n'affaiblit rien.
+// PR-105 : l'erreur de os.Hostname() n'est plus ignorée — un avertissement
+// est émis sur la sortie d'erreur et le fallback « inconnu » est employé.
 func identiteLocale(ctx *Contexte) (utilisateur, hote string) {
 	if u, err := user.Current(); err == nil {
 		utilisateur = u.Username
@@ -125,7 +192,12 @@ func identiteLocale(ctx *Contexte) (utilisateur, hote string) {
 	if utilisateur == "" && ctx.Getenv != nil {
 		utilisateur = ctx.Getenv("USER")
 	}
-	hote, _ = os.Hostname()
+	var errHote error
+	hote, errHote = os.Hostname()
+	if errHote != nil {
+		fmt.Fprintf(ctx.Stderr, "ardoise : avertissement : impossible de déterminer le nom d'hôte : %v — « inconnu » sera annoncé\n", errHote)
+		hote = "inconnu"
+	}
 	return normaliserIdentifiant(utilisateur), normaliserIdentifiant(hote)
 }
 

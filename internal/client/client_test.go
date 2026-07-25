@@ -70,7 +70,7 @@ func TestDeposerNEnvoieQueLeChiffre(t *testing.T) {
 		w.Write([]byte(`{"id":"abcdefghij29","empreinte":"00","echeance":"2026-01-01T00:00:00Z"}`))
 	})
 	chiffre := []byte{0x01, 0x02, 0x03}
-	reponse, err := c.Deposer(&Depot{Chiffre: chiffre, Duree: "1h", LectureUnique: true})
+	reponse, err := c.Deposer(&Depot{Contenu: chiffre, Duree: "1h", LectureUnique: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func serveurAuth(t *testing.T, mecanisme string) (*Client, *http.Header, *int) {
 func TestJetonEnvoyeEnBearer(t *testing.T) {
 	c, entetes, _ := serveurAuth(t, "jeton")
 	c.DefinirJeton([]byte("jeton-secret"))
-	if _, err := c.Deposer(&Depot{Chiffre: []byte{0x01}}); err != nil {
+	if _, err := c.Deposer(&Depot{Contenu: []byte{0x01}}); err != nil {
 		t.Fatal(err)
 	}
 	if obtenu := entetes.Get("Authorization"); obtenu != "Bearer jeton-secret" {
@@ -136,7 +136,7 @@ func TestEntetesDeclaratifsSelonPolitique(t *testing.T) {
 	c, entetes, appels := serveurAuth(t, "declaratif")
 	c.DeclarerIdentite("alice.durand", "poste-adm-07")
 	for i := 0; i < 2; i++ {
-		if _, err := c.Deposer(&Depot{Chiffre: []byte{0x01}}); err != nil {
+		if _, err := c.Deposer(&Depot{Contenu: []byte{0x01}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -150,7 +150,7 @@ func TestEntetesDeclaratifsSelonPolitique(t *testing.T) {
 	// Instance non déclarative : l'identité déclarée reste sur le poste.
 	c2, entetes2, _ := serveurAuth(t, "mtls")
 	c2.DeclarerIdentite("alice.durand", "poste-adm-07")
-	if _, err := c2.Deposer(&Depot{Chiffre: []byte{0x01}}); err != nil {
+	if _, err := c2.Deposer(&Depot{Contenu: []byte{0x01}}); err != nil {
 		t.Fatal(err)
 	}
 	if entetes2.Get("X-Ardoise-Utilisateur") != "" || entetes2.Get("X-Ardoise-Hote") != "" {

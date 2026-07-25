@@ -1,20 +1,10 @@
 package cli
 
 import (
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"os"
 	"strings"
-	"time"
 
-	apiclient "ardoise.pm/internal/client"
 	"ardoise.pm/internal/config"
-	"ardoise.pm/internal/server"
 )
 
 const aideInfo = `usage : ardoise info [OPTIONS]
@@ -27,6 +17,9 @@ consomme aucune ardoise.
 
 // cmdInfo interroge GET /v1/politique sur l'instance et restitue la
 // politique effective (affichage humain, ou JSON brut avec --json).
+// PR-101 : le client HTTP est celui de preparerClient (via le package
+// client), garantissant un timeout cohérent avec les autres commandes
+// (push, get) — plus de client HTTP ad hoc avec timeout divergent.
 func cmdInfo(ctx *Contexte, args []string) error {
 	fs := nouveauFS("info")
 	var com optionsCommunes
@@ -45,113 +38,21 @@ func cmdInfo(ctx *Contexte, args []string) error {
 	}
 	s := nouvelleSortie(ctx, &com)
 
-	configClient, err := config.ChargerClient(ctx.CheminsConfigClient, ctx.Getenv)
+	cl, _, err := preparerClient(ctx, &com, &auth)
 	if err != nil {
-		return Erreurf(CodeErreur, "%v", err)
+		return err
 	}
 
-	endpoint := com.endpoint
-	if endpoint == "" {
-		endpoint = configClient.Endpoint
-	}
-	if endpoint == "" {
-		return erreurUsage("aucune instance indiquée : utilisez « --endpoint », la variable ARDOISE_ENDPOINT ou la configuration client")
-	}
-	u, err := url.Parse(endpoint)
-	if err != nil || u.Host == "" {
-		return erreurUsage("endpoint « %s » invalide (attendu : https://hôte:port)", endpoint)
-	}
-	if u.Scheme != "https" {
-		return erreurUsage("endpoint « %s » refusé : seul le schéma https est pris en charge, les flux sont toujours protégés par TLS", endpoint)
-	}
-
-	if premierNonVide(auth.pkcs11, configClient.PKCS11) != "" {
-		return Erreurf(CodeErreur, "%s", messagePKCS11)
-	}
-	ac := premierNonVide(auth.ac, configClient.AC)
-	certificat, cle := auth.certificat, auth.cle
-	if certificat == "" && cle == "" {
-		certificat, cle = configClient.Certificat, configClient.Cle
-	}
-	configTLS, err := configTLSClient(ac, certificat, cle)
+	politique, err := cl.Politique()
 	if err != nil {
-		return Erreurf(CodeErreur, "%v", err)
-	}
-
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-		// Proxy volontairement absent : une instance ardoise se joint en
-		// direct sur le réseau d'administration, jamais au travers d'un
-		// mandataire (R10, HE-1).
-		Transport: &http.Transport{TLSClientConfig: configTLS},
-	}
-	reponse, err := client.Get(strings.TrimSuffix(endpoint, "/") + "/v1/politique")
-	if err != nil {
-		if apiclient.EstRefusCertificatClient(err) {
-			return Erreurf(CodeAuthRefusee,
-				"certificat client requis ou refusé par l'instance : fournissez un certificat reconnu par son AC via « --certificat » et « --cle »")
-		}
-		return Erreurf(CodeInjoignable, "instance injoignable : %v", err)
-	}
-	defer reponse.Body.Close()
-	corps, err := io.ReadAll(io.LimitReader(reponse.Body, 1<<20))
-	if err != nil {
-		return Erreurf(CodeErreur, "lecture de la réponse : %v", err)
-	}
-	if reponse.StatusCode != http.StatusOK {
-		return Erreurf(CodePourStatutHTTP(reponse.StatusCode), "réponse inattendue de l'instance (HTTP %d)", reponse.StatusCode)
+		return traduireErreurClient(err)
 	}
 
 	if com.json {
-		fmt.Fprintln(ctx.Stdout, strings.TrimSpace(string(corps)))
-		return nil
+		return ecrireJSONSortie(ctx.Stdout, politique)
 	}
-	var politique config.Politique
-	if err := json.Unmarshal(corps, &politique); err != nil {
-		return Erreurf(CodeErreur, "réponse illisible de l'instance : %v", err)
-	}
-	fmt.Fprint(ctx.Stdout, rendreInfo(&politique, s))
+	fmt.Fprint(ctx.Stdout, rendreInfo(politique, s))
 	return nil
-}
-
-// configTLSClient construit la configuration TLS du client : AC dédiée
-// (--ac, ARDOISE_AC, configuration client) ou magasin système, certificat
-// client optionnel. Jamais d'InsecureSkipVerify, en aucune circonstance.
-//
-// Épinglage (TLS-1) : dès qu'une AC est fournie, elle devient l'unique
-// autorité de confiance — RootCAs remplace intégralement le magasin
-// système, sans repli. Un certificat d'instance émis par toute autre
-// autorité, y compris une autorité publique par ailleurs reconnue par le
-// poste, est refusé.
-func configTLSClient(cheminAC, cheminCertificat, cheminCle string) (*tls.Config, error) {
-	configTLS := &tls.Config{
-		// TLS 1.2 minimum : une instance en TLS-3 reste joignable ; les
-		// suites 1.2 sont restreintes à la liste ANSSI.
-		MinVersion:   tls.VersionTLS12,
-		CipherSuites: server.SuitesTLS12(),
-	}
-	if cheminAC != "" {
-		pemAC, err := os.ReadFile(cheminAC)
-		if err != nil {
-			return nil, fmt.Errorf("lecture de l'autorité de certification : %v", err)
-		}
-		magasin := x509.NewCertPool()
-		if !magasin.AppendCertsFromPEM(pemAC) {
-			return nil, fmt.Errorf("autorité de certification %s : aucun certificat PEM exploitable", cheminAC)
-		}
-		configTLS.RootCAs = magasin
-	}
-	if (cheminCertificat == "") != (cheminCle == "") {
-		return nil, fmt.Errorf("« --certificat » et « --cle » vont de pair")
-	}
-	if cheminCertificat != "" {
-		certificat, err := tls.LoadX509KeyPair(cheminCertificat, cheminCle)
-		if err != nil {
-			return nil, fmt.Errorf("chargement du certificat client : %v", err)
-		}
-		configTLS.Certificates = []tls.Certificate{certificat}
-	}
-	return configTLS, nil
 }
 
 // rendreInfo restitue la politique à la manière de l'exemple du manuel.

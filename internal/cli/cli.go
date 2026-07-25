@@ -32,6 +32,13 @@ type Contexte struct {
 	// manuel interdit tout passage en argument. Substituable par les tests ;
 	// le mot de passe reste en []byte et l'appelant l'efface après usage.
 	LireMotDePasse func(invite string) ([]byte, error)
+
+	// Confirmer pose une question fermée sur le terminal de contrôle
+	// (/dev/tty), la réponse par défaut étant NON : elle porte la
+	// confirmation interactive de la détection de secrets (« --secrets
+	// demander »). Nil lorsqu'aucun terminal n'existe : l'appelant refuse
+	// alors l'opération plutôt que de la poursuivre sans confirmation.
+	Confirmer func(question string) (bool, error)
 }
 
 // ContexteSysteme construit le contexte réel du processus.
@@ -50,6 +57,7 @@ func ContexteSysteme(args []string) *Contexte {
 		StdoutTTY:           estTTY(os.Stdout),
 		CheminsConfigClient: chemins,
 		LireMotDePasse:      lireMotDePasseTerminal,
+		Confirmer:           confirmerTerminal,
 	}
 }
 
@@ -65,6 +73,7 @@ var commandes = map[string]commande{
 	"get":     cmdGet,
 	"info":    cmdInfo,
 	"purge":   cmdPurge,
+	"cle":     cmdCle,
 	"serve":   cmdServe,
 	"version": cmdVersion,
 }
@@ -75,6 +84,7 @@ const usageGenerale = `usage :
   ardoise get [OPTIONS] -
   ardoise info [OPTIONS]
   ardoise purge [OPTIONS]
+  ardoise cle --generer [OPTIONS]
   ardoise serve --config FICHIER [OPTIONS]
   ardoise version
 
@@ -84,6 +94,8 @@ Sous-commandes :
   get      récupère un contenu sur la sortie standard
   info     affiche la politique effective d'une instance
   purge    efface le cache local du poste
+  cle      génère le matériel de destinataire du chiffrement
+           multi-destinataires (--pour avec annuaire)
   serve    démarre une instance
   version  affiche la version, l'empreinte du binaire et l'identifiant
            de compilation

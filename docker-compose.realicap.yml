@@ -1,0 +1,31 @@
+# docker-compose.realicap.yml — Surcharge pour tests avec le vrai serveur ICAP
+# OPSWAT MetaDefender ICAP Server (opswat/metadefendericapsrv-centos).
+#
+# Usage :
+#   docker compose -f docker-compose.yml -f docker-compose.realicap.yml up
+#
+# Prérequis : le serveur OPSWAT MetaDefender doit être licencié.
+# Sans licence valide, utiliser le mock ICAP (profil « full »).
+
+services:
+  # Désactiver le mock-icap du profil full
+  mock-icap:
+    profiles:
+      - disabled  # Jamais activé
+
+  # Activer le vrai serveur ICAP
+  real-icap:
+    profiles:
+      - ""  # Profil par défaut (toujours actif avec cet override)
+    image: opswat/metadefendericapsrv-centos@sha256:5379eb9b0f71e1ba5b8ce2960ef04015eb21d047c5311876dda01ee0beb761ca
+    container_name: real-icap
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - ardoise-net
+    environment:
+      - MANAGEMENT_SSL=false
+      - ICAP_PORT=1344

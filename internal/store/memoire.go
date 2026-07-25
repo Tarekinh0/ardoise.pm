@@ -8,24 +8,13 @@ import (
 
 // Memoire est le magasin en mémoire vive (RET-1, RET-2) : aucune
 // persistance, contenus perdus au redémarrage — comportement assumé
-// (docs/dat.md §5.3).
+// (docs/dat.md §5.3). PR-107 : les champs partagés (horloge, arret,
+// fermer, rappel) sont portés par magasinBase.
 type Memoire struct {
+	magasinBase
+
 	mu       sync.RWMutex
 	ardoises map[string]*Ardoise
-
-	horloge func() time.Time
-	arret   chan struct{}
-	fermer  sync.Once
-
-	// rappel, s'il est défini (une fois, avant mise en service), est
-	// invoqué hors verrou après chaque destruction effective.
-	rappel RappelDestruction
-}
-
-// DefinirRappelDestruction installe le rappel de destruction
-// (NotifiantDestruction). À appeler avant la mise en service du magasin.
-func (m *Memoire) DefinirRappelDestruction(rappel RappelDestruction) {
-	m.rappel = rappel
 }
 
 // notifier invoque le rappel pour chaque destruction, hors verrou.
@@ -46,11 +35,19 @@ func (m *Memoire) notifier(detruites []*Ardoise, cause string) {
 func NouveauMemoire(ctx context.Context, periode time.Duration) *Memoire {
 	m := &Memoire{
 		ardoises: make(map[string]*Ardoise),
-		horloge:  time.Now,
-		arret:    make(chan struct{}),
+		magasinBase: magasinBase{
+			horloge: time.Now,
+			arret:   make(chan struct{}),
+		},
 	}
-	go m.balayer(ctx, periode)
+	go m.balayer(ctx, periode, m.purgerExpirees)
 	return m
+}
+
+// DefinirRappelDestruction installe le rappel de destruction (PR-106).
+// Satisfait NotifiantDestruction.
+func (m *Memoire) DefinirRappelDestruction(rappel RappelDestruction) {
+	m.magasinBase.definirRappelDestruction(rappel)
 }
 
 // Deposer conserve une copie du contenu : l'appelant reste libre de
@@ -58,6 +55,9 @@ func NouveauMemoire(ctx context.Context, periode time.Duration) *Memoire {
 func (m *Memoire) Deposer(a *Ardoise) error {
 	copie := *a
 	copie.Chiffre = append([]byte(nil), a.Chiffre...)
+	if a.Pour != nil {
+		copie.Pour = append([]string(nil), a.Pour...)
+	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -73,6 +73,15 @@ func (m *Memoire) Deposer(a *Ardoise) error {
 // rend la consommation atomique, une seule lecture concurrente obtient le
 // contenu.
 func (m *Memoire) Recuperer(id string) (*Ardoise, error) {
+	return m.RecupererSi(id, nil)
+}
+
+// RecupererSi applique l'expiration paresseuse, évalue le prédicat AVANT
+// toute consommation (un lecteur refusé ne détruit rien), puis la
+// destruction à la première lecture : le retrait de la table sous verrou
+// rend la consommation atomique, une seule lecture concurrente obtient le
+// contenu.
+func (m *Memoire) RecupererSi(id string, admis func(*Ardoise) bool) (*Ardoise, error) {
 	m.mu.Lock()
 	a, existe := m.ardoises[id]
 	if !existe {
@@ -85,6 +94,10 @@ func (m *Memoire) Recuperer(id string) (*Ardoise, error) {
 		m.notifier([]*Ardoise{a}, DestructionEcheance)
 		return nil, ErrIntrouvable
 	}
+	if admis != nil && !admis(a) {
+		m.mu.Unlock()
+		return nil, ErrNonAdmis
+	}
 	if a.LectureUnique {
 		delete(m.ardoises, id)
 		m.mu.Unlock()
@@ -95,30 +108,27 @@ func (m *Memoire) Recuperer(id string) (*Ardoise, error) {
 	return a, nil
 }
 
-// Fermer arrête le balayage et vide la table.
+// Fermer arrête le balayage et vide la table. Les ardoises encore présentes
+// sont notifiées comme détruites par échéance avant d'être effacées, afin
+// que le journal d'imputabilité reçoive les horodatages de destruction
+// (ADR-005) avant que le puits de journalisation ne soit fermé.
 func (m *Memoire) Fermer() error {
 	m.fermer.Do(func() {
 		close(m.arret)
 		m.mu.Lock()
+		// Drainer les entrées restantes à travers le rappel de destruction
+		// avant de vider la table, afin que les événements de destruction
+		// atteignent le journal avant sa fermeture (PR-001).
+		var detruites []*Ardoise
+		for id, a := range m.ardoises {
+			delete(m.ardoises, id)
+			detruites = append(detruites, a)
+		}
 		m.ardoises = make(map[string]*Ardoise)
 		m.mu.Unlock()
+		m.notifier(detruites, DestructionEcheance)
 	})
 	return nil
-}
-
-func (m *Memoire) balayer(ctx context.Context, periode time.Duration) {
-	ticker := time.NewTicker(periode)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-m.arret:
-			return
-		case <-ticker.C:
-			m.purgerExpirees()
-		}
-	}
 }
 
 func (m *Memoire) purgerExpirees() {

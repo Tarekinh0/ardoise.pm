@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -151,7 +152,9 @@ func TestGetValidationOptions(t *testing.T) {
 		{"tiret sans entrée", []string{"get", "-"}, CodeUsage, "aucun identifiant"},
 		{"identifiant manquant", []string{"get"}, CodeUsage, "IDENTIFIANT requis"},
 		{"cache contradictoire", []string{"get", "-n", "--cache-seul", identifiant}, CodeUsage, "exclusifs"},
-		{"cache seul non disponible", []string{"get", "--cache-seul", identifiant}, CodeErreur, "cache local"},
+		// « --cache-seul » sur un cache vide : même sémantique que le code 5
+		// du serveur (absente, expirée ou jamais mise en cache).
+		{"cache seul sans entrée", []string{"get", "--cache-seul", identifiant}, CodeIntrouvable, "cache local"},
 		{"empreinte invalide", []string{"get", "--verifier-empreinte", "zz12", identifiant}, CodeUsage, "empreinte invalide"},
 		{"deux identifiants", []string{"get", identifiant, identifiant}, CodeUsage, "argument inattendu"},
 	}
@@ -169,11 +172,24 @@ func TestGetValidationOptions(t *testing.T) {
 }
 
 func TestPurge(t *testing.T) {
-	if r := executer(t, []string{"purge"}); r.code != CodeErreur {
-		t.Errorf("purge : code = %d, attendu %d", r.code, CodeErreur)
+	// Un cache absent n'est jamais une erreur : rien à purger (0 partout).
+	env := map[string]string{"ARDOISE_CACHE": filepath.Join(t.TempDir(), "inexistant")}
+	if r := executer(t, []string{"purge"}, avecEnvironnement(env)); r.code != CodeOK {
+		t.Errorf("purge : code = %d, attendu %d (stderr : %s)", r.code, CodeOK, r.stderr)
 	}
-	if r := executer(t, []string{"purge", "--tout"}); r.code != CodeErreur {
-		t.Errorf("purge --tout : code = %d, attendu %d", r.code, CodeErreur)
+	if r := executer(t, []string{"purge", "--tout"}, avecEnvironnement(env)); r.code != CodeOK {
+		t.Errorf("purge --tout : code = %d, attendu %d", r.code, CodeOK)
+	}
+	r := executer(t, []string{"purge", "--json"}, avecEnvironnement(env))
+	var decompte struct {
+		Supprimees *int `json:"supprimees"`
+		Conservees *int `json:"conservees"`
+	}
+	if err := json.Unmarshal([]byte(r.stdout), &decompte); err != nil || r.code != CodeOK {
+		t.Fatalf("purge --json : code = %d, stdout = %q (%v)", r.code, r.stdout, err)
+	}
+	if decompte.Supprimees == nil || *decompte.Supprimees != 0 || decompte.Conservees == nil || *decompte.Conservees != 0 {
+		t.Errorf("purge --json : décomptes inattendus : %s", r.stdout)
 	}
 	if r := executer(t, []string{"purge", "reste"}); r.code != CodeUsage {
 		t.Errorf("purge avec positionnel : code = %d, attendu %d", r.code, CodeUsage)

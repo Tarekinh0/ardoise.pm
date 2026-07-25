@@ -9,6 +9,7 @@ import (
 	"regexp"
 
 	"ardoise.pm/internal/config"
+	"ardoise.pm/internal/journal"
 )
 
 // Mécanismes consignés dans les métadonnées d'imputabilité (ADR-005) : le
@@ -73,15 +74,42 @@ var reIdentifiantDeclare = regexp.MustCompile(`^[a-z0-9._-]{1,64}$`)
 // TLS elle-même exige déjà un certificat vérifiable (ClientAuth =
 // RequireAndVerifyClientCert) : « avant authentification » signifie ici
 // avant rattachement d'une identité applicative, jamais hors TLS.
-func exigerIdentite(inst *config.Instance, jetons *Jetons, suivant http.Handler) http.Handler {
+func exigerIdentite(inst *config.Instance, jetons *Jetons, jrnl *journal.Journal, suivant http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		identite, err := identifier(inst, jetons, r)
 		if err != nil {
 			ecrireAuthRequise(w, inst.Auth.Mecanisme)
+			// Le refus d'accès est un événement d'imputabilité (ADR-005).
+			// L'identité est ici partielle par nature : rien de ce que le
+			// client a présenté (jeton, en-têtes invalides) n'est consigné —
+			// seul le mécanisme exigé par l'instance l'est. Jamais de
+			// secret, même fautif, dans le journal.
+			jrnl.Consigner(journal.Entree{
+				Evenement: journal.EvenementAccesRefuse,
+				Identite: &journal.Identite{
+					Mecanisme:  marquageMecanisme(inst.Auth.Mecanisme),
+					Declaratif: inst.Auth.Mecanisme == config.MecanismeDeclaratif,
+				},
+			})
 			return
 		}
 		suivant.ServeHTTP(w, r.WithContext(avecIdentite(r.Context(), identite)))
 	})
+}
+
+// marquageMecanisme traduit un mécanisme de configuration (AUTH-1..4) vers
+// la valeur de marquage journalisée (ADR-005) : « certificat », « jeton »
+// ou « declaratif ».
+func marquageMecanisme(mecanisme string) string {
+	switch mecanisme {
+	case config.MecanismeMTLS, config.MecanismeMTLSMateriel:
+		return MecanismeCertificat
+	case config.MecanismeJeton:
+		return MecanismeJeton
+	case config.MecanismeDeclaratif:
+		return MecanismeDeclaratif
+	}
+	return mecanisme
 }
 
 // identifier applique le mécanisme de l'instance à la requête. L'erreur

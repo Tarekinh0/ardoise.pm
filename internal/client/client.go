@@ -90,11 +90,33 @@ type Client struct {
 
 // DefinirJeton fournit le jeton d'identité (AUTH-3), lu par l'appelant
 // depuis son fichier — jamais depuis un argument de ligne de commande.
+//
+// Cette méthode n'est pas protégée par un mutex : elle doit être appelée
+// avant toute utilisation concurrente du Client (phase d'initialisation
+// mono-goroutine). Une fois le Client utilisé (Politique, Deposer ou
+// Recuperer appelés), les champs d'identité sont considérés immuables.
 func (c *Client) DefinirJeton(jeton []byte) { c.jeton = jeton }
+
+// EffacerJeton met à zéro le jeton conservé dans le Client. La copie
+// immuable transmise dans l'en-tête HTTP (string) subsiste jusqu'au
+// ramasse-miettes — limitation documentée du runtime Go (docs/dat.md
+// A.3-2, PR-006). Appeler après la dernière requête authentifiée si le
+// jeton doit être effacé avant la fin du processus.
+func (c *Client) EffacerJeton() {
+	for i := range c.jeton {
+		c.jeton[i] = 0
+	}
+	c.jeton = nil
+}
 
 // DeclarerIdentite fournit l'identité annoncée du poste (utilisateur et
 // hôte). Elle n'est transmise que si la politique de l'instance retient
 // l'identification déclarative (AUTH-4).
+//
+// Cette méthode n'est pas protégée par un mutex : elle doit être appelée
+// avant toute utilisation concurrente du Client (phase d'initialisation
+// mono-goroutine). Une fois le Client utilisé, les champs d'identité sont
+// considérés immuables.
 func (c *Client) DeclarerIdentite(utilisateur, hote string) {
 	c.utilisateur, c.hote = utilisateur, hote
 }
@@ -147,34 +169,46 @@ func (c *Client) entetesDeclaratifs() (bool, error) {
 	return politique.Identification == config.MecanismeDeclaratif, nil
 }
 
-// Depot est la matière d'un dépôt : le chiffré, opaque pour l'instance, et
-// les options de cycle de vie.
+// Depot est la matière d'un dépôt : le contenu et les options de cycle de
+// vie. En mode aveugle, Contenu est le chiffré client, opaque pour
+// l'instance ; en mode analysé (CHIF-4), c'est le CLAIR — l'instance
+// l'analyse puis le chiffre elle-même (ADR-004), et l'appelant (cmdPush) a
+// affiché l'avertissement correspondant avant l'envoi.
 type Depot struct {
-	Chiffre            []byte
+	Contenu            []byte
 	Duree              string // vide : durée par défaut de l'instance
 	LectureUnique      bool
 	MarquageComplement string
+	// Pour restreint la lecture aux identités désignées (« --pour ») :
+	// identités individuelles ou groupes « @… », vérifiés par l'instance.
+	Pour []string
 }
 
-// ReponseDepot est la réponse de l'instance à un dépôt.
+// ReponseDepot est la réponse de l'instance à un dépôt. Cle n'est présente
+// qu'en mode analysé : la clé CHIF-4 générée par le serveur (base64url
+// brut), remise une seule fois — l'appelant en fait le fragment
+// d'identifiant puis l'efface.
 type ReponseDepot struct {
 	ID        string `json:"id"`
 	Empreinte string `json:"empreinte"`
 	Echeance  string `json:"echeance"`
+	Cle       string `json:"cle"`
 }
 
-// Deposer envoie POST /v1/ardoises. Seul le chiffré part vers l'instance :
-// le matériel de clé reste dans l'identifiant, côté poste.
+// Deposer envoie POST /v1/ardoises. En mode aveugle, seul le chiffré part
+// vers l'instance : le matériel de clé reste dans l'identifiant, côté poste.
 func (c *Client) Deposer(d *Depot) (*ReponseDepot, error) {
 	corps := struct {
-		Contenu            string `json:"contenu"`
-		Duree              string `json:"duree,omitempty"`
-		LectureUnique      bool   `json:"lecture_unique,omitempty"`
-		MarquageComplement string `json:"marquage_complement,omitempty"`
+		Contenu            string   `json:"contenu"`
+		Duree              string   `json:"duree,omitempty"`
+		LectureUnique      bool     `json:"lecture_unique,omitempty"`
+		Pour               []string `json:"pour,omitempty"`
+		MarquageComplement string   `json:"marquage_complement,omitempty"`
 	}{
-		Contenu:            base64.StdEncoding.EncodeToString(d.Chiffre),
+		Contenu:            base64.StdEncoding.EncodeToString(d.Contenu),
 		Duree:              d.Duree,
 		LectureUnique:      d.LectureUnique,
+		Pour:               d.Pour,
 		MarquageComplement: d.MarquageComplement,
 	}
 	var reponse ReponseDepot
@@ -266,6 +300,13 @@ func (c *Client) executer(methode, chemin string, corps any, cible any, declarat
 	if c.jeton != nil {
 		// AUTH-3 : le jeton part vers l'instance et nulle part ailleurs ;
 		// il n'apparaît dans aucune erreur ni sortie.
+		//
+		// Limitation documentée (docs/dat.md A.3-2) : net/http.Header.Set
+		// n'accepte que des string ; la conversion []byte → string crée
+		// une copie immuable qui ne peut pas être effacée avant le
+		// ramasse-miettes. L'effacement différé par crypto.Effacer() sur le
+		// []byte source ne porte donc pas sur cette copie. Cette limitation
+		// du runtime Go est assumée et documentée.
 		requete.Header.Set("Authorization", "Bearer "+string(c.jeton))
 	}
 	if declaratif {

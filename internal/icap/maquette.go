@@ -182,38 +182,3 @@ func (m *Maquette) repondre200(conn net.Conn, corps []byte) {
 	conn.Write(corps)
 	fmt.Fprintf(conn, "\r\n0\r\n\r\n")
 }
-
-// AnalyseurFixe est un Analyseur de test qui rend toujours le même verdict,
-// sans réseau. Les tests du serveur HTTP s'en servent pour éprouver le
-// pipeline du mode analysé sans maquette ICAP.
-type AnalyseurFixe struct {
-	Reponse Verdict
-
-	mu      sync.Mutex
-	vus     int
-	dernier []byte
-}
-
-// Analyser retourne le verdict fixé et retient une copie du contenu soumis
-// (tests uniquement — jamais dans le produit).
-func (a *AnalyseurFixe) Analyser(contenu []byte) Verdict {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.vus++
-	a.dernier = append([]byte(nil), contenu...)
-	return a.Reponse
-}
-
-// Vus compte les soumissions reçues.
-func (a *AnalyseurFixe) Vus() int {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.vus
-}
-
-// Dernier restitue le dernier contenu soumis.
-func (a *AnalyseurFixe) Dernier() []byte {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return append([]byte(nil), a.dernier...)
-}

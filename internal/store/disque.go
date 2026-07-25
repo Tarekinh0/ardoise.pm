@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,24 +45,12 @@ const (
 // jamais les fichiers illisibles — une clé de magasin mal configurée ne
 // doit pas provoquer une destruction en masse.
 type Disque struct {
+	magasinBase
+
 	repertoire string
 	aead       cipher.AEAD
 	cle        []byte
-
-	mu      sync.Mutex
-	horloge func() time.Time
-	arret   chan struct{}
-	fermer  sync.Once
-
-	// rappel, s'il est défini (une fois, avant mise en service), est
-	// invoqué hors verrou après chaque destruction effective.
-	rappel RappelDestruction
-}
-
-// DefinirRappelDestruction installe le rappel de destruction
-// (NotifiantDestruction). À appeler avant la mise en service du magasin.
-func (d *Disque) DefinirRappelDestruction(rappel RappelDestruction) {
-	d.rappel = rappel
+	mu         sync.Mutex
 }
 
 // notifier invoque le rappel pour une destruction, hors verrou.
@@ -94,11 +83,24 @@ func NouveauDisque(ctx context.Context, repertoire string, cleMagasin []byte, pe
 		repertoire: repertoire,
 		aead:       aead,
 		cle:        cle,
-		horloge:    time.Now,
-		arret:      make(chan struct{}),
+		magasinBase: magasinBase{
+			horloge: time.Now,
+			arret:   make(chan struct{}),
+		},
 	}
-	go d.balayer(ctx, periode)
+	// Vérification de l'intégrité des fichiers existants au démarrage.
+	// Un fichier corrompu ou illisible est signalé à l'exploitant sans
+	// être supprimé : une clé de magasin erronée ne doit pas provoquer
+	// une destruction en masse (PR-109).
+	d.verifierIntegriteDemarrage()
+	go d.balayer(ctx, periode, d.purgerExpirees)
 	return d, nil
+}
+
+// DefinirRappelDestruction installe le rappel de destruction (PR-106).
+// Satisfait NotifiantDestruction.
+func (d *Disque) DefinirRappelDestruction(rappel RappelDestruction) {
+	d.magasinBase.definirRappelDestruction(rappel)
 }
 
 // enregistrement est la forme JSON d'une ardoise avant chiffrement.
@@ -109,6 +111,7 @@ type enregistrement struct {
 	Echeance           time.Time `json:"echeance"`
 	LectureUnique      bool      `json:"lecture_unique"`
 	MarquageComplement string    `json:"marquage_complement,omitempty"`
+	Pour               []string  `json:"pour,omitempty"`
 }
 
 func (d *Disque) chemin(id string) string {
@@ -128,6 +131,7 @@ func (d *Disque) Deposer(a *Ardoise) error {
 		Echeance:           a.Echeance,
 		LectureUnique:      a.LectureUnique,
 		MarquageComplement: a.MarquageComplement,
+		Pour:               a.Pour,
 	})
 	if err != nil {
 		return fmt.Errorf("sérialisation de l'enregistrement : %w", err)
@@ -153,6 +157,15 @@ func (d *Disque) Deposer(a *Ardoise) error {
 // paresseuse puis la destruction à la première lecture. Le verrou rend la
 // consommation atomique : une seule lecture concurrente obtient le contenu.
 func (d *Disque) Recuperer(id string) (*Ardoise, error) {
+	return d.RecupererSi(id, nil)
+}
+
+// RecupererSi lit et déchiffre l'enregistrement, applique l'expiration
+// paresseuse, évalue le prédicat AVANT toute consommation (un lecteur
+// refusé ne détruit rien), puis la destruction à la première lecture. Le
+// verrou rend la consommation atomique : une seule lecture concurrente
+// obtient le contenu.
+func (d *Disque) RecupererSi(id string, admis func(*Ardoise) bool) (*Ardoise, error) {
 	if !idSain(id) {
 		return nil, ErrIntrouvable
 	}
@@ -168,6 +181,10 @@ func (d *Disque) Recuperer(id string) (*Ardoise, error) {
 		d.notifier(id, e.Empreinte, DestructionEcheance)
 		return nil, ErrIntrouvable
 	}
+	if admis != nil && !admis(e.versArdoise()) {
+		d.mu.Unlock()
+		return nil, ErrNonAdmis
+	}
 	if e.LectureUnique {
 		// Consommation avant restitution : la suppression du fichier est
 		// le point de bascule, les lectures suivantes reçoivent code 5.
@@ -180,6 +197,11 @@ func (d *Disque) Recuperer(id string) (*Ardoise, error) {
 	} else {
 		d.mu.Unlock()
 	}
+	return e.versArdoise(), nil
+}
+
+// versArdoise traduit l'enregistrement déchiffré vers l'objet du magasin.
+func (e *enregistrement) versArdoise() *Ardoise {
 	return &Ardoise{
 		ID:                 e.ID,
 		Chiffre:            e.Chiffre,
@@ -187,18 +209,92 @@ func (d *Disque) Recuperer(id string) (*Ardoise, error) {
 		Echeance:           e.Echeance,
 		LectureUnique:      e.LectureUnique,
 		MarquageComplement: e.MarquageComplement,
-	}, nil
+		Pour:               e.Pour,
+	}
 }
 
-// Fermer arrête le balayage et efface la clé de magasin.
+// Fermer arrête le balayage, draine les ardoises persistées via le rappel
+// de destruction, puis efface la clé de magasin. Le drainage est effectué
+// avant l'effacement de la clé, afin que le journal d'imputabilité reçoive
+// les horodatages de destruction (ADR-005) —corrigé dans PR-002, l'absence
+// de drainage rendait le journal incomplet à l'arrêt (les ardoises non
+// expirées présentes sur le disque ne généraient aucun événement).
 func (d *Disque) Fermer() error {
 	d.fermer.Do(func() {
 		close(d.arret)
+		// Drainer les ardoises persistées via le rappel de destruction,
+		// avant d'effacer la clé de magasin (PR-002).
+		d.drainerDestructions()
 		for i := range d.cle {
 			d.cle[i] = 0
 		}
 	})
 	return nil
+}
+
+// drainerDestructions parcourt les fichiers du répertoire et notifie chaque
+// ardoise déchiffrable comme détruite par échéance, afin que le journal
+// d'imputabilité reçoive les horodatages de destruction à l'arrêt
+// (ADR-005, PR-002).
+func (d *Disque) drainerDestructions() {
+	entrees, err := os.ReadDir(d.repertoire)
+	if err != nil {
+		return
+	}
+	for _, entree := range entrees {
+		nom := entree.Name()
+		if !strings.HasSuffix(nom, extension) {
+			continue
+		}
+		id := strings.TrimSuffix(nom, extension)
+		if !idSain(id) {
+			continue
+		}
+		e, err := d.lire(id)
+		if err != nil {
+			continue
+		}
+		d.notifier(id, e.Empreinte, DestructionEcheance)
+	}
+}
+
+// verifierIntegriteDemarrage parcourt les fichiers existants du magasin
+// et signale à l'exploitant tout fichier corrompu ou indéchiffrable.
+// Aucun fichier n'est supprimé : une clé de magasin erronée ne doit pas
+// provoquer une destruction en masse (PR-109).
+func (d *Disque) verifierIntegriteDemarrage() {
+	entrees, err := os.ReadDir(d.repertoire)
+	if err != nil {
+		log.Printf("magasin disque : impossible de lire le répertoire %s : %v", d.repertoire, err)
+		return
+	}
+	corrompus := 0
+	for _, entree := range entrees {
+		nom := entree.Name()
+		// Nettoyage des fichiers temporaires abandonnés : un crash ou un
+		// arrêt brutal pendant ecrireAtomique laisse des fichiers .depot-*
+		// qui ne seront jamais nettoyés par purgerExpirees (PR-001).
+		if strings.HasPrefix(nom, ".depot-") {
+			log.Printf("magasin disque : fichier temporaire abandonné au démarrage, nettoyage : %s", nom)
+			os.Remove(filepath.Join(d.repertoire, nom))
+			continue
+		}
+		if !strings.HasSuffix(nom, extension) {
+			continue
+		}
+		id := strings.TrimSuffix(nom, extension)
+		if !idSain(id) {
+			log.Printf("magasin disque : fichier au nom inattendu ignoré : %s", nom)
+			continue
+		}
+		if _, err := d.lire(id); err != nil {
+			log.Printf("magasin disque : AVERTISSEMENT — fichier corrompu ou indéchiffrable : %s (%v). Le fichier n'est pas supprimé.", nom, err)
+			corrompus++
+		}
+	}
+	if corrompus > 0 {
+		log.Printf("magasin disque : %d fichier(s) corrompu(s) détecté(s) au démarrage — aucun n'a été supprimé. Vérifiez la clé de magasin et l'intégrité du stockage.", corrompus)
+	}
 }
 
 // lire déchiffre l'enregistrement de l'ardoise id. Toute anomalie —
@@ -232,7 +328,12 @@ func (d *Disque) supprimer(id string) error {
 	if err := os.Remove(d.chemin(id)); err != nil {
 		return err
 	}
-	return synchroniserRepertoire(d.repertoire)
+	// La suppression effective est le contrat principal ; une défaillance
+	// de la synchronisation du répertoire ne l'invalide pas (PR-105).
+	if err := synchroniserRepertoire(d.repertoire); err != nil {
+		log.Printf("magasin disque : synchronisation du répertoire après suppression de %s : %v", id, err)
+	}
+	return nil
 }
 
 func (d *Disque) ecrireAtomique(chemin string, donnees []byte) error {
@@ -275,30 +376,32 @@ func synchroniserRepertoire(repertoire string) error {
 	return rep.Sync()
 }
 
-func (d *Disque) balayer(ctx context.Context, periode time.Duration) {
-	ticker := time.NewTicker(periode)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-d.arret:
-			return
-		case <-ticker.C:
-			d.purgerExpirees()
-		}
-	}
-}
-
 // purgerExpirees détruit les enregistrements déchiffrables et expirés. Les
 // fichiers illisibles sont laissés en place (voir le commentaire de type) ;
 // les fichiers temporaires abandonnés de plus d'une heure sont nettoyés.
+//
+// PR-103 : la contention O(n) documentée (Lock par fichier) est supprimée.
+// La première phase collecte tous les identifiants expirés sous un seul
+// verrou — le temps de balayage est proportionnel au nombre de fichiers,
+// mais Deposer et Recuperer ne sont bloqués que le temps d'UNE acquisition
+// de Lock plutôt que N. La seconde phase notifie hors verrou. L'optimisation
+// réduit la contention au sens de l'ADR-argus (HIGH-005).
 func (d *Disque) purgerExpirees() {
 	entrees, err := os.ReadDir(d.repertoire)
 	if err != nil {
 		return
 	}
 	maintenant := d.horloge()
+
+	type aExpurger struct {
+		id        string
+		empreinte string
+	}
+	var aExpurgerList []aExpurger
+
+	// Phase 1 : collecter les identifiants expirés sous un seul verrou,
+	// avec suppression atomique du fichier.
+	d.mu.Lock()
 	for _, entree := range entrees {
 		nom := entree.Name()
 		switch {
@@ -307,19 +410,27 @@ func (d *Disque) purgerExpirees() {
 			if !idSain(id) {
 				continue
 			}
-			d.mu.Lock()
 			e, err := d.lire(id)
-			expiree := err == nil && !maintenant.Before(e.Echeance)
-			if expiree {
+			if err == nil && !maintenant.Before(e.Echeance) {
 				d.supprimer(id)
-			}
-			d.mu.Unlock()
-			if expiree {
-				d.notifier(id, e.Empreinte, DestructionEcheance)
+				aExpurgerList = append(aExpurgerList, aExpurger{id, e.Empreinte})
 			}
 		case strings.HasPrefix(nom, ".depot-"):
+			// Fichiers temporaires : traités hors verrou (phase 3).
+		}
+	}
+	d.mu.Unlock()
+
+	// Phase 2 : notifier les destructions hors verrou (PR-103).
+	for _, ae := range aExpurgerList {
+		d.notifier(ae.id, ae.empreinte, DestructionEcheance)
+	}
+
+	// Phase 3 : nettoyage des fichiers temporaires abandonnés (sans verrou).
+	for _, entree := range entrees {
+		if strings.HasPrefix(entree.Name(), ".depot-") {
 			if infos, err := entree.Info(); err == nil && maintenant.Sub(infos.ModTime()) > time.Hour {
-				os.Remove(filepath.Join(d.repertoire, nom))
+				os.Remove(filepath.Join(d.repertoire, entree.Name()))
 			}
 		}
 	}

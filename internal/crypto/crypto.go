@@ -95,6 +95,8 @@ const (
 	VersionMotDePasse    byte = 0x02 // CHIF-3
 	VersionCleMotDePasse byte = 0x03 // CHIF-1
 	VersionServeur       byte = 0x04 // CHIF-4 — chiffré par le serveur après analyse
+	// VersionMultiDest (0x05, CHIF-MD) est déclarée dans multidest.go avec
+	// son format propre (ADR-014, cas a).
 )
 
 // infoCHIF1 lie la dérivation HKDF du schéma CHIF-1 au produit et à la
@@ -199,13 +201,17 @@ func ChiffrerServeur(clair []byte) (chiffre, cle []byte, err error) {
 }
 
 // Schema retourne l'octet de version du chiffré, qui encode le schéma de
-// protection employé au dépôt.
+// protection employé au dépôt. La vérification `len(chiffre) == 0` est
+// défensive : tout chemin d'appel vérifie déjà la taille minimale (GCM
+// exigeant 1 + nonce + tag), mais cette redondance protège contre un appel
+// accidentel depuis un futur point d'entrée (PR-108 — laissée en place
+// pour la robustesse, malgré une couverture de test marginale).
 func Schema(chiffre []byte) (byte, error) {
 	if len(chiffre) == 0 {
 		return 0, errors.New("chiffré vide")
 	}
 	switch v := chiffre[0]; v {
-	case VersionCle, VersionMotDePasse, VersionCleMotDePasse, VersionServeur:
+	case VersionCle, VersionMotDePasse, VersionCleMotDePasse, VersionServeur, VersionMultiDest:
 		return v, nil
 	default:
 		return 0, fmt.Errorf("version de chiffré inconnue (0x%02x)", v)
@@ -223,6 +229,13 @@ func BesoinMotDePasse(version byte) bool {
 	return version == VersionMotDePasse || version == VersionCleMotDePasse
 }
 
+// EstMultiDest indique si le chiffré relève du schéma multi-destinataires
+// (CHIF-MD) : l'ouverture exige la clé privée X25519 du destinataire —
+// jamais un fragment d'identifiant ni un mot de passe (multidest.go).
+func EstMultiDest(version byte) bool {
+	return version == VersionMultiDest
+}
+
 // Dechiffrer ouvre un chiffré quel que soit son schéma, avec le matériel
 // fourni : cle est le matériel du fragment d'identifiant (nil s'il n'y en a
 // pas), motDePasse le mot de passe saisi (nil sans mot de passe). Le clair
@@ -232,6 +245,12 @@ func Dechiffrer(chiffre, cle, motDePasse []byte) ([]byte, error) {
 	version, err := Schema(chiffre)
 	if err != nil {
 		return nil, err
+	}
+	if EstMultiDest(version) {
+		// Le format CHIF-MD porte sa propre table d'enveloppes : son
+		// ouverture passe par DechiffrerMultiDest, avec la clé privée du
+		// destinataire.
+		return nil, errors.New("chiffré multi-destinataires : la clé privée de destinataire est requise (CHIF-MD)")
 	}
 	if BesoinCle(version) && len(cle) != TailleCle {
 		return nil, errors.New("matériel de clé absent ou de taille inattendue")
@@ -305,8 +324,8 @@ func sceller(version byte, sel, cleAEAD, clair []byte) ([]byte, error) {
 }
 
 // scellerAvecNonce est le cœur déterministe de sceller, isolé pour que les
-// tests puissent produire des vecteurs à nonce fixé. Ne jamais l'appeler
-// hors tests avec un nonce qui ne provient pas de crypto/rand.
+// tests puissent produire des vecteurs à nonce fixé. Ne jamais appeler avec
+// un nonce qui ne provient pas de crypto/rand.
 func scellerAvecNonce(version byte, sel, nonce, cleAEAD, clair []byte) ([]byte, error) {
 	gcm, err := nouveauGCM(cleAEAD)
 	if err != nil {

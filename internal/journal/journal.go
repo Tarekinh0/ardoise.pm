@@ -56,6 +56,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -68,6 +69,11 @@ const (
 	EvenementDestructionLecture  = "destruction_lecture"
 	EvenementDepotRefuseAnalyse  = "depot_refuse_analyse"
 	EvenementAccesRefuse         = "acces_refuse"
+	// EvenementLectureRefuseeDestinataire : une identité authentifiée a
+	// présenté un identifiant valide mais n'est pas un destinataire désigné
+	// (« --pour ») — le client a reçu la même réponse qu'une ardoise
+	// inexistante (code 5), seul le journal distingue.
+	EvenementLectureRefuseeDestinataire = "lecture_refusee_destinataire"
 )
 
 // Identite est l'identité consignée avec son mécanisme : la force probante
@@ -132,10 +138,12 @@ type Journal struct {
 	stderr   io.Writer
 
 	mu      sync.RWMutex
-	ferme   bool
+	ferme   atomic.Bool
 	entrees chan *Entree
 	fini    chan struct{}
 
+	// compteurMu protège les compteurs ET l'écriture des avertissements :
+	// Consigner (appelants) et la goroutine d'écriture partagent stderr.
 	compteurMu sync.Mutex
 	abandons   int
 	echecs     int
@@ -211,6 +219,11 @@ func genese(instance string, demarrage time.Time) []byte {
 // file est pleine, l'entrée la plus ancienne est abandonnée (compteur et
 // avertissement). Horodatage, Instance et Niveau sont renseignés s'ils sont
 // vides. Sur un Journal nil (JOURN-4), ne fait rien.
+//
+// PR-100 : le triple-select imbriqué de la version précédente a été extrait
+// dans tenterEvincerEtInserer, une fonction de canal autonome et testable
+// séparément. La logique d'éviction/insertion est séparée du verrouillage
+// et de la comptabilisation — Consigner devient un chef d'orchestre.
 func (j *Journal) Consigner(e Entree) {
 	if j == nil {
 		return
@@ -224,31 +237,63 @@ func (j *Journal) Consigner(e Entree) {
 	if e.Niveau == "" {
 		e.Niveau = j.niveau
 	}
+	if j.ferme.Load() {
+		return
+	}
 	j.mu.RLock()
-	defer j.mu.RUnlock()
-	if j.ferme {
+	// Re-vérifier après acquisition du RLock : Fermer a pu positionner
+	// le drapeau entre le Load et le RLock.
+	if j.ferme.Load() {
+		j.mu.RUnlock()
 		return
 	}
-	select {
-	case j.entrees <- &e:
+	insere, evince := tenterEvincerEtInserer(j.entrees, &e)
+	j.mu.RUnlock()
+	if !insere {
+		j.compteurMu.Lock()
+		j.abandons++
+		j.compteurMu.Unlock()
 		return
-	default:
 	}
-	// File pleine : abandon de la plus ancienne, au profit de la plus
-	// récente (disponibilité du service avant complétude du journal).
+	if evince {
+		j.compteurMu.Lock()
+		j.abandons++
+		fmt.Fprintf(j.stderr, "ardoise : journal : file d'émission saturée, entrée la plus ancienne abandonnée (%d abandon(s) depuis le démarrage)\n", j.abandons)
+		j.compteurMu.Unlock()
+	}
+}
+
+// tenterEvincerEtInserer tente d'envoyer une entrée dans la file. Si la
+// file est pleine, l'entrée la plus ancienne est évincée puis l'insertion
+// est retentée. Retourne (inséré, évincé) :
+//   - (true, false) : insertion directe sans éviction ;
+//   - (true, true)  : éviction puis insertion réussie ;
+//   - (false, false) : échec — la file est pleine et vide à la fois
+//     (ne devrait pas survenir, défense en profondeur) ;
+//   - (false, true)  : éviction réussie mais le slot a été repris par
+//     une goroutine concurrente avant l'insertion — l'entrée est perdue.
+//
+// PR-100 : extrait de Consigner pour isoler la logique d'éviction du
+// verrouillage. La fonction est sans état, n'utilise que le canal, et
+// peut être testée séparément.
+func tenterEvincerEtInserer(canal chan *Entree, e *Entree) (insere bool, evince bool) {
 	select {
-	case <-j.entrees:
+	case canal <- e:
+		return true, false
 	default:
 	}
 	select {
-	case j.entrees <- &e:
+	case <-canal:
+		evince = true
+		select {
+		case canal <- e:
+			return true, true
+		default:
+			return false, true
+		}
 	default:
+		return false, false
 	}
-	j.compteurMu.Lock()
-	j.abandons++
-	n := j.abandons
-	j.compteurMu.Unlock()
-	fmt.Fprintf(j.stderr, "ardoise : journal : file d'émission saturée, entrée la plus ancienne abandonnée (%d abandon(s) depuis le démarrage)\n", n)
 }
 
 // Abandons retourne le nombre d'entrées abandonnées depuis le démarrage.
@@ -268,12 +313,12 @@ func (j *Journal) Fermer() error {
 		return nil
 	}
 	j.mu.Lock()
-	if j.ferme {
+	if j.ferme.Load() {
 		j.mu.Unlock()
 		<-j.fini
 		return nil
 	}
-	j.ferme = true
+	j.ferme.Store(true)
 	close(j.entrees)
 	j.mu.Unlock()
 	<-j.fini
@@ -293,11 +338,10 @@ func (j *Journal) ecrire() {
 		if err != nil {
 			j.compteurMu.Lock()
 			j.echecs++
-			n := j.echecs
-			j.compteurMu.Unlock()
 			// Le message ne reproduit jamais l'entrée : seule la nature de
 			// l'échec sort.
-			fmt.Fprintf(j.stderr, "ardoise : journal : émission impossible (%d échec(s) depuis le démarrage) : %v\n", n, err)
+			fmt.Fprintf(j.stderr, "ardoise : journal : émission impossible (%d échec(s) depuis le démarrage) : %v\n", j.echecs, err)
+			j.compteurMu.Unlock()
 		}
 	}
 }

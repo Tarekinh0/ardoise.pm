@@ -59,6 +59,13 @@ const jetonIntegration = "jeton-integration-tres-secret"
 // à jeton, le fichier de jeton (ARDOISE_JETON).
 func serveurIntegration(t *testing.T, inst *config.Instance, magasin store.Magasin) map[string]string {
 	t.Helper()
+	return serveurIntegrationAvec(t, inst, magasin, server.Dependances{})
+}
+
+// serveurIntegrationAvec est la variante à collaborateurs explicites
+// (analyseur ICAP, journal) pour les tests du mode analysé.
+func serveurIntegrationAvec(t *testing.T, inst *config.Instance, magasin store.Magasin, deps server.Dependances) map[string]string {
+	t.Helper()
 	env := map[string]string{}
 	var jetons *server.Jetons
 	if inst.Auth.Mecanisme == config.MecanismeJeton {
@@ -74,7 +81,7 @@ func serveurIntegration(t *testing.T, inst *config.Instance, magasin store.Magas
 		}
 		env["ARDOISE_JETON"] = cheminJeton
 	}
-	ts := httptest.NewTLSServer(server.Handler(inst, magasin, jetons))
+	ts := httptest.NewTLSServer(server.Handler(inst, magasin, jetons, deps))
 	t.Cleanup(ts.Close)
 	cheminAC := filepath.Join(t.TempDir(), "ac.pem")
 	pemAC := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ts.Certificate().Raw})
@@ -116,6 +123,11 @@ func pousser(t *testing.T, env map[string]string, contenu string, options []stri
 	return executer(t, args, opts...)
 }
 
+// enTeteMarquageIntegration est la ligne MARQ-1 que « get » place en tête
+// de toute restitution des instances de test (marquage actif, libellé
+// « DIFFUSION RESTREINTE », internal/marquage).
+const enTeteMarquageIntegration = "=== DIFFUSION RESTREINTE ===\n"
+
 func identifiantDe(t *testing.T, r resultat) string {
 	t.Helper()
 	if r.code != CodeOK {
@@ -156,8 +168,10 @@ func TestIntegrationCHIF2(t *testing.T) {
 	if lecture.code != CodeOK {
 		t.Fatalf("get : code = %d (stderr : %s)", lecture.code, lecture.stderr)
 	}
-	if lecture.stdout != contenu {
-		t.Fatalf("contenu rendu = %q, attendu %q", lecture.stdout, contenu)
+	// MARQ-1 : le libellé de l'instance précède le contenu restitué,
+	// inchangé par ailleurs (ES-11, internal/marquage).
+	if lecture.stdout != enTeteMarquageIntegration+contenu {
+		t.Fatalf("contenu rendu = %q, attendu %q", lecture.stdout, enTeteMarquageIntegration+contenu)
 	}
 }
 
@@ -175,7 +189,7 @@ func TestIntegrationCHIF3(t *testing.T) {
 	}
 
 	lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(env), avecMotDePasse("grand-large"))
-	if lecture.code != CodeOK || lecture.stdout != contenu {
+	if lecture.code != CodeOK || lecture.stdout != enTeteMarquageIntegration+contenu {
 		t.Fatalf("get : code = %d, stdout = %q (stderr : %s)", lecture.code, lecture.stdout, lecture.stderr)
 	}
 
@@ -203,7 +217,7 @@ func TestIntegrationCHIF1(t *testing.T) {
 	}
 
 	lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(env), avecMotDePasse("cap-horn"))
-	if lecture.code != CodeOK || lecture.stdout != contenu {
+	if lecture.code != CodeOK || lecture.stdout != enTeteMarquageIntegration+contenu {
 		t.Fatalf("get : code = %d, stdout = %q (stderr : %s)", lecture.code, lecture.stdout, lecture.stderr)
 	}
 
@@ -238,7 +252,7 @@ func TestIntegrationLectureUnique(t *testing.T) {
 	}
 
 	premiere := executer(t, []string{"get", identifiant}, avecEnvironnement(env))
-	if premiere.code != CodeOK || premiere.stdout != "à lire une seule fois" {
+	if premiere.code != CodeOK || premiere.stdout != enTeteMarquageIntegration+"à lire une seule fois" {
 		t.Fatalf("première lecture : code = %d, stdout = %q", premiere.code, premiere.stdout)
 	}
 	seconde := executer(t, []string{"get", identifiant}, avecEnvironnement(env))
@@ -340,7 +354,7 @@ func TestIntegrationSortieFichierEtIdentifiantSurStdin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(donnees) != "contenu vers fichier" {
+	if string(donnees) != enTeteMarquageIntegration+"contenu vers fichier" {
 		t.Fatalf("fichier = %q", donnees)
 	}
 	infos, err := os.Stat(chemin)
@@ -396,7 +410,7 @@ func TestIntegrationMagasinDisque(t *testing.T) {
 	env2 := serveurIntegration(t, inst, second)
 
 	lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(env2))
-	if lecture.code != CodeOK || lecture.stdout != "survivant du redémarrage" {
+	if lecture.code != CodeOK || lecture.stdout != enTeteMarquageIntegration+"survivant du redémarrage" {
 		t.Fatalf("lecture après redémarrage : code = %d, stdout = %q (stderr : %s)",
 			lecture.code, lecture.stdout, lecture.stderr)
 	}

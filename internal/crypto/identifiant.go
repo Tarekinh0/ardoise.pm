@@ -68,6 +68,16 @@ func FormatIdentifiant(id string, cle []byte) string {
 	return id + "#" + base64.RawURLEncoding.EncodeToString(cle)
 }
 
+// FormatIdentifiantMultiDest assemble l'identifiant d'une ardoise chiffrée
+// pour plusieurs destinataires (CHIF-MD) : « <id-serveur>#md ». Le fragment
+// est une SENTINELLE, jamais une clé — il signale au client de récupération
+// qu'aucune clé symétrique n'est attendue, l'ouverture exigeant la clé
+// privée du destinataire ; l'octet de version du chiffré reste seul
+// autoritaire sur le schéma (multidest.go).
+func FormatIdentifiantMultiDest(id string) string {
+	return id + "#" + SentinelleMultiDest
+}
+
 // ParseIdentifiant décompose un identifiant saisi par l'utilisateur en
 // identifiant serveur et matériel de clé (nil en l'absence de fragment).
 // Seul l'identifiant serveur est destiné à être transmis à l'instance.
@@ -78,6 +88,11 @@ func ParseIdentifiant(s string) (id string, cle []byte, err error) {
 		return "", nil, errors.New("identifiant invalide : la partie serveur doit compter 12 caractères parmi a-z et 2-9")
 	}
 	if !avecFragment {
+		return id, nil, nil
+	}
+	if fragment == SentinelleMultiDest {
+		// Sentinelle CHIF-MD : aucune clé dans l'identifiant, l'ouverture
+		// passera par la clé privée du destinataire (multidest.go).
 		return id, nil, nil
 	}
 	cle, errDecodage := base64.RawURLEncoding.DecodeString(fragment)

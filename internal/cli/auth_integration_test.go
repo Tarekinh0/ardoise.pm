@@ -283,7 +283,7 @@ func TestIntegrationDeclaratif(t *testing.T) {
 	r := pousser(t, env, "identité déclarée", nil)
 	identifiant := identifiantDe(t, r)
 	lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(env))
-	if lecture.code != CodeOK || lecture.stdout != "identité déclarée" {
+	if lecture.code != CodeOK || lecture.stdout != enTeteMarquageIntegration+"identité déclarée" {
 		t.Fatalf("get déclaratif : code = %d, stdout = %q (stderr : %s)", lecture.code, lecture.stdout, lecture.stderr)
 	}
 }

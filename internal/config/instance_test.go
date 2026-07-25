@@ -441,6 +441,7 @@ func TestVariantesOptions(t *testing.T) {
 		{"JOURN-2 collecteur sans chaînage", func(m map[string]map[string]any) { m["journal"]["chainage"] = false }, DimJournalisation, "JOURN-2"},
 		{"JOURN-3 fichier", func(m map[string]map[string]any) {
 			m["journal"]["destination"] = "fichier"
+			m["journal"]["fichier"] = "/var/log/ardoise/journal.jsonl"
 			m["journal"]["chainage"] = false
 		}, DimJournalisation, "JOURN-3"},
 		{"JOURN-4 aucun", func(m map[string]map[string]any) {
@@ -502,5 +503,61 @@ func TestEcartsII901(t *testing.T) {
 	}
 	if p := inst.Politique(); p.ConformeII901 {
 		t.Error("ConformeII901 devrait être faux")
+	}
+}
+
+// TestICAPReglesControle rejette les caracteres de retour a la ligne
+// (\r, \n) dans icap_regles, conformement a DPO-B-003. La validation
+// a lieu au chargement de la configuration et tous les CR/LF sont
+// signales, pas seulement le premier.
+func TestICAPReglesControle(t *testing.T) {
+	cas := []struct {
+		nom          string
+		regles       string
+		aProbleme    bool
+		minProblemes int // nombre minimum de problemes attendus (0 si non applicable)
+	}{
+		{"valeur normale", "jeu-de-regles", false, 0},
+		{"avec CRLF", "foo\r\nInjected: evil", true, 1},
+		{"avec LF seul", "foo\nbar", true, 1},
+		{"avec CR seul", "foo\rbar", true, 1},
+		{"avec multiples CRLF", "a\rb\nc\r\nd", true, 4},
+		{"avec tabulation", "foo\tbar", false, 0},
+		{"avec DEL", "foo\x7fbar", false, 0},
+		{"avec NUL", "foo\x00bar", false, 0},
+		{"chaîne vide", "", false, 0},
+	}
+
+	for _, c := range cas {
+		t.Run(c.nom, func(t *testing.T) {
+			m := configComplete()
+			m["instance"]["mode"] = "analyse"
+			m["contenu"]["chiffrement"] = "serveur"
+			m["analyse"]["icap_url"] = "icap://a.interne:1344/reqmod"
+			m["analyse"]["icap_regles"] = c.regles
+
+			_, problemes, err := Analyser(enJSON(t, m))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			compte := 0
+			for _, p := range problemes {
+				if strings.Contains(p.Champ, "icap_regles") {
+					compte++
+				}
+			}
+			aTrouve := compte > 0
+
+			if c.aProbleme && !aTrouve {
+				t.Fatalf("problème attendu pour icap_regles=%q, aucun trouvé (problèmes : %v)", c.regles, problemes)
+			}
+			if !c.aProbleme && aTrouve {
+				t.Fatalf("aucun problème attendu pour icap_regles=%q, trouvé (problèmes : %v)", c.regles, problemes)
+			}
+			if c.minProblemes > 0 && compte < c.minProblemes {
+				t.Fatalf("seulement %d problème(s) trouvé(s) pour icap_regles=%q, attendu au moins %d — la boucle capture-t-elle tous les CR/LF ?", compte, c.regles, c.minProblemes)
+			}
+		})
 	}
 }

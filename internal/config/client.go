@@ -10,15 +10,28 @@ import (
 // Client est la configuration du poste client (docs/man.md, « FICHIER DE
 // CONFIGURATION CLIENT », amendé : client.json). Les clés pkcs11 et jeton
 // complètent le fichier du manuel afin de couvrir les mêmes réglages que les
-// variables d'environnement ARDOISE_PKCS11 et ARDOISE_JETON.
+// variables d'environnement ARDOISE_PKCS11 et ARDOISE_JETON ; annuaire et
+// cle_privee_ardoise portent le chiffrement multi-destinataires (CHIF-MD,
+// ADR-014 cas a) :
+//
+//	Clé                 Variable              Rôle
+//	───────────────────────────────────────────────────────────────────────
+//	annuaire            ARDOISE_ANNUAIRE      annuaire de clés publiques
+//	                                          X25519 (JSON : identité →
+//	                                          clé publique base64)
+//	cle_privee_ardoise  ARDOISE_CLE_PRIVEE    clé privée X25519 du poste
+//	                                          (fichier 0600, base64 ou
+//	                                          hexadécimal, 32 octets)
 type Client struct {
-	Endpoint   string `json:"endpoint"`
-	AC         string `json:"ac"`
-	Certificat string `json:"certificat"`
-	Cle        string `json:"cle"`
-	PKCS11     string `json:"pkcs11"`
-	Jeton      string `json:"jeton"`
-	Cache      string `json:"cache"`
+	Endpoint         string `json:"endpoint"`
+	AC               string `json:"ac"`
+	Certificat       string `json:"certificat"`
+	Cle              string `json:"cle"`
+	PKCS11           string `json:"pkcs11"`
+	Jeton            string `json:"jeton"`
+	Cache            string `json:"cache"`
+	Annuaire         string `json:"annuaire"`
+	ClePriveeArdoise string `json:"cle_privee_ardoise"`
 }
 
 // variablesClient relie chaque variable d'environnement du manuel au champ
@@ -34,6 +47,8 @@ var variablesClient = []struct {
 	{"ARDOISE_PKCS11", func(c *Client) *string { return &c.PKCS11 }},
 	{"ARDOISE_JETON", func(c *Client) *string { return &c.Jeton }},
 	{"ARDOISE_CACHE", func(c *Client) *string { return &c.Cache }},
+	{"ARDOISE_ANNUAIRE", func(c *Client) *string { return &c.Annuaire }},
+	{"ARDOISE_CLE_PRIVEE", func(c *Client) *string { return &c.ClePriveeArdoise }},
 }
 
 // ChargerClient charge la configuration client. Les chemins sont lus dans

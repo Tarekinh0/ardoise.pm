@@ -40,7 +40,17 @@ type Politique struct {
 	// opération pour préparer le matériel correspondant — en particulier, les
 	// en-têtes d'identification déclarative (AUTH-4) ne sont émis que si
 	// l'instance les attend.
-	Identification  string            `json:"identification"`
+	Identification string `json:"identification"`
+	// DestinatairesAdmis annonce si l'instance accepte la désignation de
+	// destinataires (« --pour ») : refusée sous identification déclarative,
+	// l'identité du lecteur y étant falsifiable (DestinatairesAdmissibles).
+	// Le client la lit avant tout dépôt pour refuser localement, jamais un
+	// contournement silencieux (ES-4).
+	DestinatairesAdmis bool `json:"destinataires_admis"`
+	// CachePolitique est la politique de rémanence côté client déclarée par
+	// l'instance (ADR-013) : « interdit » (CACHE-1), « borne » (CACHE-2) ou
+	// « libre » (CACHE-3). Le client ne peut pas l'outrepasser.
+	CachePolitique  string            `json:"cache_politique"`
 	Options         []OptionEffective `json:"options"`
 	DureeMax        string            `json:"duree_max"`
 	DureeDefaut     string            `json:"duree_defaut"`
@@ -85,19 +95,21 @@ var titresDimensions = []struct {
 func (i *Instance) Politique() Politique {
 	ecarts := i.EcartsII901()
 	p := Politique{
-		Instance:        i.Nom,
-		Mode:            i.Mode,
-		Identification:  i.Auth.Mecanisme,
-		DureeMax:        FormatDuree(i.Retention.DureeMax),
-		DureeDefaut:     FormatDuree(i.Retention.DureeDefaut),
-		TailleMax:       FormatTaille(i.Contenu.TailleMax),
-		TailleMaxOctets: i.Contenu.TailleMax,
-		LectureUnique:   i.Retention.LectureUnique,
-		SecretsClient:   i.Analyse.SecretsClient,
-		MarquageActif:   i.Marquage.Actif,
-		MarquageLibelle: i.Marquage.Libelle,
-		ConformeII901:   len(ecarts) == 0,
-		EcartsII901:     ecarts,
+		Instance:           i.Nom,
+		Mode:               i.Mode,
+		Identification:     i.Auth.Mecanisme,
+		DestinatairesAdmis: i.DestinatairesAdmissibles(),
+		CachePolitique:     i.Cache.Politique,
+		DureeMax:           FormatDuree(i.Retention.DureeMax),
+		DureeDefaut:        FormatDuree(i.Retention.DureeDefaut),
+		TailleMax:          FormatTaille(i.Contenu.TailleMax),
+		TailleMaxOctets:    i.Contenu.TailleMax,
+		LectureUnique:      i.Retention.LectureUnique,
+		SecretsClient:      i.Analyse.SecretsClient,
+		MarquageActif:      i.Marquage.Actif,
+		MarquageLibelle:    i.Marquage.Libelle,
+		ConformeII901:      len(ecarts) == 0,
+		EcartsII901:        ecarts,
 	}
 	ajouter := func(dimension string, o Option) {
 		p.Options = append(p.Options, OptionEffective{

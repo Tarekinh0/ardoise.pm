@@ -18,6 +18,8 @@ import (
 
 	"ardoise.pm/internal/config"
 	"ardoise.pm/internal/crypto"
+	"ardoise.pm/internal/icap"
+	"ardoise.pm/internal/journal"
 	"ardoise.pm/internal/store"
 )
 
@@ -25,6 +27,11 @@ import (
 // L'expiration paresseuse à la lecture garantit qu'aucune ardoise expirée
 // n'est servie entre deux passages (ADR-003).
 const periodeBalayage = time.Minute
+
+// maxHeaderBytes borne la taille des en-têtes HTTP à 16 Kio : un client
+// malveillant ne peut pas épuiser l'instance en envoyant des en-têtes
+// démesurés (PR-103 — constante nommée en remplacement du littéral inline).
+const maxHeaderBytes = 16 << 10
 
 // SuitesTLS12 est la liste fermée des suites autorisées lorsque TLS 1.2 est
 // admis (TLS-3) : ECDHE avec AES-GCM ou ChaCha20-Poly1305 exclusivement,
@@ -46,6 +53,7 @@ type Serveur struct {
 	serveurHTTP *http.Server
 	ecouteur    net.Listener
 	magasin     store.Magasin
+	journal     *journal.Journal
 }
 
 // Nouveau prépare le serveur : adresse d'écoute (surcharge « --ecoute »
@@ -101,21 +109,85 @@ func Nouveau(inst *config.Instance, ecouteSurcharge string) (*Serveur, error) {
 			return nil, err
 		}
 	}
+	var groupes *Groupes
+	if inst.Auth.Groupes != "" {
+		// Table des groupes de destinataires (« --pour ») : optionnelle,
+		// mais déclarée illisible ou invalide, elle empêche le démarrage —
+		// comme la table des jetons, jamais un chargement partiel silencieux.
+		if groupes, err = ChargerGroupes(inst.Auth.Groupes); err != nil {
+			return nil, err
+		}
+	}
 	magasin, err := nouveauMagasin(inst)
 	if err != nil {
 		return nil, err
 	}
+
+	// Journal d'imputabilité (JOURN-1..4, ADR-005) : monté selon
+	// journal.destination — nil pour « aucun » (JOURN-4, zéro émission).
+	// Le niveau consigné est le libellé de marquage lorsque MARQ-1 est actif.
+	niveau := ""
+	if inst.Marquage.Actif {
+		niveau = inst.Marquage.Libelle
+	}
+	jrnl, err := journal.Nouveau(journal.Config{
+		Instance:    inst.Nom,
+		Niveau:      niveau,
+		Destination: inst.Journal.Destination,
+		Chainage:    inst.Journal.Chainage,
+		Fichier:     inst.Journal.Fichier,
+		AC:          inst.Journal.AC,
+	})
+	if err != nil {
+		magasin.Fermer()
+		return nil, fmt.Errorf("journalisation : %w", err)
+	}
+	// Les destructions du magasin (échéance, lecture unique) alimentent le
+	// journal : horodatages de destruction de l'ADR-005.
+	if jrnl != nil {
+		if notifiant, ok := magasin.(store.NotifiantDestruction); ok {
+			notifiant.DefinirRappelDestruction(func(id, empreinte, cause string) {
+				evenement := journal.EvenementDestructionEcheance
+				if cause == store.DestructionLecture {
+					evenement = journal.EvenementDestructionLecture
+				}
+				jrnl.Consigner(journal.Entree{
+					Evenement: evenement,
+					IDServeur: id,
+					Empreinte: empreinte,
+				})
+			})
+		}
+	}
+
+	// Client ICAP du mode analysé (ADR-011) : la validation de configuration
+	// garantit analyse.icap_url ; toute défaillance de montage empêche le
+	// démarrage — jamais un démarrage sans chaîne d'analyse.
+	var analyseur icap.Analyseur
+	if inst.Mode == config.ModeAnalyse {
+		client, err := icap.NouveauClient(inst.Analyse.ICAPURL, inst.Analyse.ICAPDelai, inst.Analyse.ICAPRegles)
+		if err != nil {
+			if jrnl != nil {
+				jrnl.Fermer()
+			}
+			magasin.Fermer()
+			return nil, fmt.Errorf("chaîne d'analyse : %w", err)
+		}
+		analyseur = client
+	}
+
 	return &Serveur{
 		adresse: adresse,
 		magasin: magasin,
+		journal: jrnl,
 		serveurHTTP: &http.Server{
-			Handler:           Handler(inst, magasin, jetons),
+			Handler:           Handler(inst, magasin, jetons, Dependances{Analyseur: analyseur, Journal: jrnl, Groupes: groupes}),
 			TLSConfig:         configTLS,
 			ReadHeaderTimeout: 10 * time.Second,
 			ReadTimeout:       30 * time.Second,
 			WriteTimeout:      30 * time.Second,
 			IdleTimeout:       60 * time.Second,
-			MaxHeaderBytes:    16 << 10,
+			MaxHeaderBytes:    maxHeaderBytes,
 		},
 	}, nil
 }
@@ -177,9 +249,10 @@ func (s *Serveur) Adresse() string {
 // Servir sert en TLS jusqu'à l'annulation du contexte (SIGINT/SIGTERM côté
 // appelant), puis s'arrête proprement en laissant les échanges en cours se
 // terminer, dans une limite de cinq secondes. À l'arrêt, le magasin est
-// fermé : balayage stoppé, clé de magasin effacée.
+// fermé explicitement en premier (balayage stoppé, destructions notifiées
+// au journal pour l'ADR-005), puis le journal est vidé et fermé. L'ordre
+// explicite évite toute ambiguïté des defer LIFO (PR-001).
 func (s *Serveur) Servir(ctx context.Context) error {
-	defer s.magasin.Fermer()
 	if s.ecouteur == nil {
 		if err := s.Ecouter(); err != nil {
 			return err
@@ -189,19 +262,42 @@ func (s *Serveur) Servir(ctx context.Context) error {
 	go func() {
 		erreurs <- s.serveurHTTP.ServeTLS(s.ecouteur, "", "")
 	}()
+
+	var errServeur error
 	select {
 	case err := <-erreurs:
 		if errors.Is(err, http.ErrServerClosed) {
-			return nil
+			errServeur = nil
+		} else {
+			errServeur = err
 		}
-		return err
 	case <-ctx.Done():
 		ctxArret, annuler := context.WithTimeout(context.Background(), 5*time.Second)
 		defer annuler()
 		errArret := s.serveurHTTP.Shutdown(ctxArret)
-		if err := <-erreurs; err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return err
+		select {
+		case err := <-erreurs:
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errServeur = err
+			}
+		case <-ctxArret.Done():
+			errServeur = errArret
 		}
-		return errArret
+		if errArret != nil && errServeur == nil {
+			errServeur = errArret
+		}
 	}
+
+	// Arrêt explicite et ordonné : le magasin est fermé en premier —
+	// ses destructions (échéance, lecture unique) alimentent le journal
+	// via le rappel NotifiantDestruction — puis le journal se draine.
+	errMagasin := s.magasin.Fermer()
+	if s.journal != nil {
+		errJournal := s.journal.Fermer()
+		if errMagasin != nil {
+			return errMagasin
+		}
+		return errors.Join(errServeur, errJournal)
+	}
+	return errors.Join(errServeur, errMagasin)
 }

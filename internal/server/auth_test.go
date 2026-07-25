@@ -152,7 +152,7 @@ func sonderIdentite(t *testing.T, inst *config.Instance, jetons *Jetons, prepare
 		preparer(requete)
 	}
 	enregistreur := httptest.NewRecorder()
-	exigerIdentite(inst, jetons, sonde).ServeHTTP(enregistreur, requete)
+	exigerIdentite(inst, jetons, nil, sonde).ServeHTTP(enregistreur, requete)
 	return identite, enregistreur
 }
 
@@ -326,7 +326,7 @@ func TestAucunAccesAnonyme(t *testing.T) {
 	for _, mecanisme := range []string{"mtls", "mtls-materiel", "jeton", "declaratif"} {
 		t.Run(mecanisme, func(t *testing.T) {
 			inst := instanceAuth(t, mecanisme, nil)
-			serveur := httptest.NewServer(Handler(inst, magasinDeTest(t), jetons))
+			serveur := httptest.NewServer(Handler(inst, magasinDeTest(t), jetons, Dependances{}))
 			t.Cleanup(serveur.Close)
 
 			depot, err := http.Post(serveur.URL+"/v1/ardoises", "application/json", strings.NewReader(`{"contenu":"AQ=="}`))
@@ -606,7 +606,7 @@ func TestJetonBoutEnBout(t *testing.T) {
 		t.Fatal(err)
 	}
 	inst := instanceAuth(t, "jeton", nil)
-	serveur := httptest.NewServer(Handler(inst, magasinDeTest(t), jetons))
+	serveur := httptest.NewServer(Handler(inst, magasinDeTest(t), jetons, Dependances{}))
 	t.Cleanup(serveur.Close)
 
 	deposerAvec := func(autorisation string) int {

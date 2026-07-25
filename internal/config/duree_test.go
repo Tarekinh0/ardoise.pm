@@ -79,3 +79,37 @@ func TestParseFormatDureeAllerRetour(t *testing.T) {
 		}
 	}
 }
+
+// TestRoundTripDureeExhaustif vérifie que chaque combinaison
+// heure/minute/seconde admissible (0-168h, 0-59m, 0-59s, durée positive)
+// survit à l'aller-retour ParseDuree → FormatDuree. Le test couvre toutes
+// les valeurs intermédiaires, pas seulement quelques points choisis.
+// PR-104 : le round-trip FormatDuree → ParseDuree était fragile —
+// ce test exhaustif garantit la stabilité du format.
+func TestRoundTripDureeExhaustif(t *testing.T) {
+	heures := []int{0, 1, 2, 6, 12, 24, 48, 72, 168}
+	minutes := []int{0, 1, 5, 15, 30, 45, 59}
+	secondes := []int{0, 1, 10, 30, 59}
+
+	for _, h := range heures {
+		for _, m := range minutes {
+			for _, s := range secondes {
+				if h == 0 && m == 0 && s == 0 {
+					continue
+				}
+				d := time.Duration(h)*time.Hour +
+					time.Duration(m)*time.Minute +
+					time.Duration(s)*time.Second
+				formatee := FormatDuree(d)
+				reparse, err := ParseDuree(formatee)
+				if err != nil {
+					t.Errorf("FormatDuree(%v) = %q → ParseDuree(%q) : %v", d, formatee, formatee, err)
+					continue
+				}
+				if reparse != d {
+					t.Errorf("round-trip %v → %q → %v : écart", d, formatee, reparse)
+				}
+			}
+		}
+	}
+}

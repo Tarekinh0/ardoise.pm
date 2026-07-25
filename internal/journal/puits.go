@@ -72,13 +72,20 @@ type puitsSyslogTLS struct {
 	instance  string
 	configTLS *tls.Config
 
-	mu   sync.Mutex
-	conn net.Conn
+	mu                sync.Mutex
+	conn              net.Conn
+	derniereTentative time.Time
 }
 
 // delaiSyslog borne l'établissement de connexion et chaque écriture vers le
 // collecteur : la goroutine d'émission ne reste jamais suspendue sans borne.
 const delaiSyslog = 10 * time.Second
+
+// intervalleReprise espace les tentatives de reconnexion après un échec :
+// un collecteur en panne coûte au plus une tentative par intervalle, les
+// entrées intermédiaires échouent immédiatement (comptées, jamais
+// bloquantes) — le drainage de la file à l'arrêt reste ainsi borné.
+const intervalleReprise = 5 * time.Second
 
 func nouveauPuitsSyslogTLS(destination, cheminAC, instance string) (*puitsSyslogTLS, error) {
 	u, err := url.Parse(destination)
@@ -122,8 +129,14 @@ func (p *puitsSyslogTLS) emettre(e *Entree, canonique []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.conn == nil {
+		if time.Since(p.derniereTentative) < intervalleReprise {
+			return fmt.Errorf("collecteur indisponible : reconnexion différée")
+		}
 		conn, err := tls.DialWithDialer(&net.Dialer{Timeout: delaiSyslog}, "tcp", p.adresse, p.configTLS)
 		if err != nil {
+			// L'horodatage se prend APRÈS l'échec : une tentative qui a
+			// consommé son délai n'en déclenche pas une autre aussitôt.
+			p.derniereTentative = time.Now()
 			return fmt.Errorf("collecteur injoignable : %w", err)
 		}
 		p.conn = conn

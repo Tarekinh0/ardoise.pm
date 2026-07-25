@@ -17,3 +17,7 @@ CGO_ENABLED=0 go build \
   -o ardoise ./cmd/ardoise
 
 echo "binaire : ./ardoise (version ${VERSION}, compilation ${ID_COMPILATION})"
+echo ""
+echo "tests avec détection de race (-race, CGO requis)..."
+CGO_ENABLED=1 go test -race -count=1 ./...
+echo "tests : OK"

@@ -25,6 +25,11 @@
 //	                                                       0600) : requis avec le mécanisme
 //	                                                       « jeton », sans objet (refusé) sinon —
 //	                                                       aucun jeton ne peut être inventé
+//	auth.groupes              ""                  —        table optionnelle des groupes de
+//	                                                       destinataires (JSON : « @groupe » →
+//	                                                       identités membres) pour « --pour » ;
+//	                                                       refusée sous « declaratif » où la
+//	                                                       désignation est elle-même refusée
 //	contenu.chiffrement       "cle+motdepasse"    CHIF-1   R+ en mode aveugle ; en mode analyse le défaut
 //	                          (ou "serveur")      CHIF-4   est "serveur", seule valeur admissible du mode
 //	contenu.taille_max        "256Kio"            —        borne de l'exemple du manuel ; le service
@@ -66,15 +71,14 @@
 package config
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"ardoise.pm/internal/jsonutil"
 )
 
 // Modes de déploiement (docs/dat.md §4.5).
@@ -131,6 +135,15 @@ type Auth struct {
 	ACClients     string
 	ChampIdentite string
 	Jetons        string // chemin de la table des jetons (AUTH-3)
+
+	// Groupes est le chemin (optionnel) de la table des groupes de
+	// destinataires : un fichier JSON associant chaque groupe (« @equipe »)
+	// à ses membres, par exemple {"@equipe-reseau": ["alice.durand"]}.
+	// Elle sert la désignation de destinataires (« --pour ») : au moment de
+	// la lecture, un groupe absent de la table ne correspond à aucune
+	// identité. Sans objet — et refusée — sous identification déclarative,
+	// où « --pour » est structurellement refusé.
+	Groupes string
 }
 
 // ExigeCertificatClient indique si l'instance exige un certificat client au
@@ -237,6 +250,7 @@ type sectionAuth struct {
 	ACClients     *string `json:"ac_clients"`
 	ChampIdentite *string `json:"champ_identite"`
 	Jetons        *string `json:"jetons"`
+	Groupes       *string `json:"groupes"`
 }
 
 type sectionContenu struct {
@@ -306,18 +320,23 @@ func Analyser(donnees []byte) (*Instance, []Probleme, error) {
 	return inst, inst.valider(), nil
 }
 
+// DecoderStrict expose le décodage strict du paquet aux autres tables JSON
+// du produit (annuaire de clés publiques, notamment) : mêmes règles que
+// les configurations — tout champ inconnu ou contenu excédentaire est une
+// erreur.
+//
+// PR-101 : délégué à internal/jsonutil — le paquet config ne doit pas être
+// le dépositaire d'un utilitaire JSON générique. Cette fonction demeure
+// exportée pour la rétrocompatibilité des appelants internes au paquet config
+// (tests, notamment).
+func DecoderStrict(donnees []byte, cible any) error {
+	return jsonutil.DecoderStrict(donnees, cible)
+}
+
 // decoderStrict décode du JSON en refusant tout champ inconnu et tout
-// contenu excédentaire après l'objet racine.
+// contenu excédentaire après l'objet racine. Délègue à jsonutil.
 func decoderStrict(donnees []byte, cible any) error {
-	dec := json.NewDecoder(bytes.NewReader(donnees))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(cible); err != nil {
-		return err
-	}
-	if dec.More() {
-		return errors.New("contenu excédentaire après l'objet racine")
-	}
-	return nil
+	return jsonutil.DecoderStrict(donnees, cible)
 }
 
 func defChaine(p *string, defaut string) string {
@@ -377,6 +396,7 @@ func resoudre(f *fichierInstance) *Instance {
 		ACClients:     defChaine(sa.ACClients, ""),
 		ChampIdentite: defChaine(sa.ChampIdentite, "CN"),
 		Jetons:        defChaine(sa.Jetons, ""),
+		Groupes:       defChaine(sa.Groupes, ""),
 	}
 
 	defautChiffrement := "cle+motdepasse"
@@ -508,6 +528,9 @@ func (i *Instance) valider() []Probleme {
 		if i.Auth.Mecanisme == MecanismeDeclaratif && i.Mode == ModeAnalyse {
 			ajouter("auth.mecanisme", "l'identification déclarative (AUTH-4) est réservée au mode « aveugle » (docs/dat.md §5.2)")
 		}
+		if i.Auth.Mecanisme == MecanismeDeclaratif && i.Auth.Groupes != "" {
+			ajouter("auth.groupes", "sans objet avec le mécanisme « declaratif » : la désignation de destinataires y est structurellement refusée (docs/man.md, « --pour »)")
+		}
 	}
 	switch i.Auth.ChampIdentite {
 	case "CN", "SAN:email", "SAN:dns", "SAN:uri":
@@ -613,6 +636,19 @@ func (i *Instance) valider() []Probleme {
 		u, err := url.Parse(i.Analyse.ICAPURL)
 		if err != nil || u.Scheme != "icap" || u.Host == "" {
 			ajouter("analyse.icap_url", "URL « %s » invalide (attendu : « icap://hôte:port/service », RFC 3507)", i.Analyse.ICAPURL)
+		}
+	}
+	// SRQ-B003 / DPO-B-003 : icap_regles ne doit pas contenir de
+	// caractères de retour à la ligne (\r, \n), vecteurs d'injection
+	// d'en-tête ICAP. Toute occurrence est signalée — pas de
+	// transformation silencieuse.
+	if i.Analyse.ICAPRegles != "" {
+		for i, b := range []byte(i.Analyse.ICAPRegles) {
+			if b == '\r' || b == '\n' {
+				ajouter("analyse.icap_regles",
+					"caractère de contrôle interdit (0x%02X) à la position %d — les retours à la ligne ne sont pas admis dans l'en-tête X-Ardoise-Regles (DPO-B-003)",
+					b, i)
+			}
 		}
 	}
 

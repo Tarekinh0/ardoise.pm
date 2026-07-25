@@ -448,3 +448,57 @@ func TestNouveauDisqueRefuseMauvaiseCle(t *testing.T) {
 		t.Fatal("clé de magasin de mauvaise taille acceptée")
 	}
 }
+
+// TestDisqueNettoyageFichiersTemporairesAuDemarrage vérifie que les fichiers
+// temporaires abandonnés (.depot-*) — résidus d'un crash ou d'un arrêt
+// brutal pendant ecrireAtomique — sont nettoyés au démarrage (PR-001).
+func TestDisqueNettoyageFichiersTemporairesAuDemarrage(t *testing.T) {
+	rep := t.TempDir()
+	cle := make([]byte, 32)
+	if _, err := rand.Read(cle); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simuler des fichiers temporaires abandonnés de l'extérieur
+	depot1 := filepath.Join(rep, ".depot-abc123")
+	depot2 := filepath.Join(rep, ".depot-def456")
+	valide := filepath.Join(rep, "abcdefghij99.ard")
+
+	if err := os.WriteFile(depot1, []byte("residu 1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(depot2, []byte("residu 2"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(valide, []byte("fichier valide"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Vérifier que les fichiers temporaires existent avant le démarrage
+	if _, err := os.Stat(depot1); os.IsNotExist(err) {
+		t.Fatalf("fichier temporaire attendu : %s", depot1)
+	}
+	if _, err := os.Stat(depot2); os.IsNotExist(err) {
+		t.Fatalf("fichier temporaire attendu : %s", depot2)
+	}
+
+	// Le démarrage du magasin déclenche verifierIntegriteDemarrage
+	disque, err := NouveauDisque(context.Background(), rep, cle, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer disque.Fermer()
+
+	// Les fichiers temporaires doivent avoir disparu
+	if _, err := os.Stat(depot1); !os.IsNotExist(err) {
+		t.Errorf("fichier temporaire %s aurait dû être nettoyé au démarrage", depot1)
+	}
+	if _, err := os.Stat(depot2); !os.IsNotExist(err) {
+		t.Errorf("fichier temporaire %s aurait dû être nettoyé au démarrage", depot2)
+	}
+
+	// Le fichier de l'ardoise valide demeure (même s'il est illisible)
+	if _, err := os.Stat(valide); os.IsNotExist(err) {
+		t.Errorf("fichier valide %s aurait dû être conservé", valide)
+	}
+}

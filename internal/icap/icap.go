@@ -33,9 +33,10 @@
 //   - Pas de mode « Preview » (RFC 3507 §4.5) : le corps est transmis en
 //     entier. Les contenus étant bornés par contenu.taille_max (ES-10),
 //     l'économie du Preview est négligeable devant sa complexité.
-//   - analyse.icap_regles est transmis tel quel dans l'en-tête
+//   - analyse.icap_regles est transmis dans l'en-tête
 //     « X-Ardoise-Regles » de la requête ICAP : jeu de règles opaque pour le
-//     produit, interprété par la chaîne d'analyse de l'entité (ANA-1).
+//     produit, interprété par la chaîne d'analyse de l'entité (ANA-1). Les
+//     caractères \r et \n sont rejetés (DPO-B-003, fail-closed).
 //
 // Aucun contenu, extrait de contenu ou clé ne figure jamais dans une erreur
 // ou un message de ce paquet : seul le verdict sort.
@@ -132,6 +133,7 @@ func (c *Client) Analyser(contenu []byte) Verdict {
 	// Échéance dure sur l'ensemble de l'échange : la fenêtre en clair du
 	// mode analysé est bornée par ce délai (A.3-1).
 	if err := conn.SetDeadline(echeance); err != nil {
+		conn.Close() // fermeture explicite avant retour (PR-004)
 		return VerdictIndisponible
 	}
 	if err := c.emettreREQMOD(conn, contenu); err != nil {
@@ -157,6 +159,14 @@ func (c *Client) emettreREQMOD(conn net.Conn, contenu []byte) error {
 	fmt.Fprintf(&b, "Host: %s\r\n", c.hote)
 	fmt.Fprintf(&b, "Allow: 204\r\n")
 	if c.regles != "" {
+		// DPO-B-003 : les caractères \r et \n dans icap_regles doivent
+		// provoquer le rejet, pas une transformation silencieuse. La
+		// validation primaire a lieu au chargement de la configuration
+		// (internal/config/instance.go) ; un \r ou \n résiduel est la
+		// trace d'un défaut de validation — fail-closed (ADR-011).
+		if strings.ContainsAny(c.regles, "\r\n") {
+			return fmt.Errorf("icap_regles contient des caractères de contrôle CR/LF interdits (DPO-B-003)")
+		}
 		fmt.Fprintf(&b, "X-Ardoise-Regles: %s\r\n", c.regles)
 	}
 	fmt.Fprintf(&b, "Encapsulated: req-hdr=0, req-body=%d\r\n", reqHTTP.Len())

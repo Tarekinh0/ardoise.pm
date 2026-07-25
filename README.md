@@ -71,7 +71,7 @@ Manuel : [`docs/man.md`](docs/man.md).
 
 ```bash
 # Serveur
-ardoise serve --config /etc/ardoise/ardoise.toml
+ardoise serve --config /etc/ardoise/ardoise.json
 
 # Conteneur
 docker run -v /etc/ardoise:/etc/ardoise:ro ardoise:latest
@@ -90,7 +90,7 @@ Paquets signes, builds reproductibles, installation hors ligne native.
 ardoise version
 
 # Verifier une configuration sans demarrer
-ardoise serve --config ardoise.toml --verifier
+ardoise serve --config ardoise.json --verifier
 ```
 
 ---

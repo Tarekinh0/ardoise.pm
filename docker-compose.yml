@@ -1,0 +1,176 @@
+# Ardoise — Environnement d'intégration docker-compose (P-001)
+# Usage :
+#   docker compose --profile full up    # ardoise + mock ICAP + syslog
+#   docker compose --profile realicap up # ardoise + real ICAP + syslog  
+#   docker compose up                   # ardoise seul
+#
+# Sécurité (SRQ-P001-2..6) :
+#   - réseau interne dédié, pas de ports hôte exposés sauf test
+#   - read-only rootfs, cap_drop ALL, no-new-privileges
+#   - non-root user (1000:1000)
+#   - configuration montée en lecture seule
+#   - clefs et certificats montés à l'exécution (jamais dans l'image)
+
+services:
+  ardoise:
+    image: ardoise:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ardoise-server
+    user: "1000:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - ardoise-net
+    ports:
+      - "127.0.0.1:8443:8443"  # Exposé uniquement sur loopback pour les tests
+    volumes:
+      # Configuration montée en lecture seule (SRQ-P001-5)
+      - type: bind
+        source: ./tmp/test-config.json
+        target: /etc/ardoise/config.json
+        read_only: true
+      # Espace inscriptible temporaire (tmpfs)
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 64M
+      # Magasin disque chiffré (optionnel) — volume nommé
+      - store-data:/var/lib/ardoise:rw
+      # Clef de chiffrement du magasin (montée en lecture seule, DPO-P-001-2)
+      - type: bind
+        source: ./tmp/store.key
+        target: /etc/ardoise/store.key
+        read_only: true
+      # Matériel TLS (monté en lecture seule, jamais dans l'image)
+      - type: bind
+        source: ./tmp/certs/server.pem
+        target: /etc/ardoise/certs/server.pem
+        read_only: true
+      - type: bind
+        source: ./tmp/certs/server.key
+        target: /etc/ardoise/certs/server.key
+        read_only: true
+    environment:
+      - ARDOISE_NO_COLOR=1
+    restart: "no"
+    # PR-003 — Healthcheck désactivé pour les déploiements mTLS par défaut.
+    #
+    # Sous AUTH-1/AUTH-2 (mTLS avec RequireAndVerifyClientCert), la poignée
+    # de main TLS exige un certificat client. Le healthcheck « ardoise info »
+    # ne peut pas aboutir sans --certificat/--cle, ce qui provoque une boucle
+    # de redémarrage Docker (interval 10s, retries 3 → UNHEALTHY → restart).
+    #
+    # Les déploiements mTLS DOIVENT surcharger la directive healthcheck en
+    # ajoutant un certificat client valide :
+    #
+    #   healthcheck:
+    #     test: ["CMD", "/ardoise", "info",
+    #       "--endpoint", "https://localhost:8443",
+    #       "--ac", "/etc/ardoise/certs/server.pem",
+    #       "--certificat", "/etc/ardoise/certs/client.pem",
+    #       "--cle", "/etc/ardoise/certs/client.key",
+    #       "--silencieux"]
+    #     interval: 10s
+    #     timeout: 5s
+    #     retries: 3
+    #     start_period: 5s
+    #
+    # Les déploiements sans mTLS (AUTH-3 jeton, AUTH-4 déclaratif)
+    # peuvent activer le healthcheck sans certificat client (seulement
+    # --ac pour ancrer l'instance) :
+    #
+    #   healthcheck:
+    #     test: ["CMD", "/ardoise", "info",
+    #       "--endpoint", "https://localhost:8443",
+    #       "--ac", "/etc/ardoise/certs/server.pem",
+    #       "--silencieux"]
+    #     interval: 10s
+    #     timeout: 5s
+    #     retries: 3
+    #     start_period: 5s
+
+  # Mock ICAP — analyses toujours favorables (tests uniquement, PR-113)
+  mock-icap:
+    profiles:
+      - full
+    build:
+      context: .
+      dockerfile: Dockerfile.mock-icap
+    container_name: mock-icap
+    user: "1000:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - ardoise-net
+    environment:
+      - PORT=1344
+      # Écoute sur toutes les interfaces dans le réseau interne docker
+      # (le service n'expose aucun port vers l'hôte, PR-113)
+      - LISTEN_ADDR=0.0.0.0
+
+  # SERVICE DE TEST UNIQUEMENT — NE JAMAIS DÉPLOYER EN PRODUCTION
+  #
+  # Collecteur syslog minimal pour tests (UDP, sans TLS pour test local).
+  # Ce service utilise un shell (sh) et netcat (nc), et repose sur Alpine
+  # (pas Red Hat UBI). Il n'est destiné qu'à la validation locale de la
+  # chaîne de journalisation en environnement docker-compose.
+  # Port non-privilégié 10514 (PR-103), exec form (PR-104), image épinglée (PR-102)
+  syslog-collector:
+    profiles:
+      - full
+      - realicap
+    # Alpine 3.21 épinglé par SHA256 (PR-102)
+    image: alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d
+    container_name: syslog-collector
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - ardoise-net
+    # Shell form utilisé car nc nécessite une redirection (pipe) — service de
+    # test uniquement. Le shell est Alpine /bin/sh, aucune commande arbitraire.
+    command: ["sh", "-c", "nc -l -u 10514 | tee /tmp/syslog.log"]
+    volumes:
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 64M
+
+  # Real ICAP server — OPSWAT MetaDefender ICAP Server (tests avancés)
+  # Déclenché avec : docker compose --profile realicap up
+  real-icap:
+    profiles:
+      - realicap
+    image: opswat/metadefendericapsrv-centos@sha256:5379eb9b0f71e1ba5b8ce2960ef04015eb21d047c5311876dda01ee0beb761ca
+    container_name: real-icap
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - ardoise-net
+    environment:
+      - MANAGEMENT_SSL=false
+      - ICAP_PORT=1344
+    # Note : l'image opswat nécessite une licence pour fonctionner en production.
+    # Pour les tests d'intégration, utiliser le mock ICAP (profil « full »).
+
+networks:
+  ardoise-net:
+    internal: true
+    driver: bridge
+
+volumes:
+  store-data:
+    driver: local

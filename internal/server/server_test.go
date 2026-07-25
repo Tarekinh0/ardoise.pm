@@ -119,7 +119,7 @@ func serveurDeTest(t *testing.T, muterInstance func(*config.Instance)) (*httptes
 		muterInstance(inst)
 	}
 	magasin := magasinDeTest(t)
-	serveur := httptest.NewServer(Handler(inst, magasin, nil))
+	serveur := httptest.NewServer(Handler(inst, magasin, nil, Dependances{}))
 	t.Cleanup(serveur.Close)
 	return serveur, magasin
 }
@@ -278,7 +278,10 @@ func TestDepotTailleDepassee(t *testing.T) {
 		inst.Contenu.TailleMax = 1024
 		inst.Contenu.TailleMaxTexte = "1Kio"
 	})
-	gros := bytes.Repeat([]byte{0x42}, 4096)
+	// La marge de chiffrement la plus large est celle de CHIF-MD
+	// (~7 Kio) ; le contenu testé doit la dépasser pour déclencher
+	// un refus 413. Ici, 9 Kio excède 1 Kio + margeChiffrement.
+	gros := bytes.Repeat([]byte{0x42}, 9216)
 	corps := fmt.Sprintf(`{"contenu": %q}`, base64.StdEncoding.EncodeToString(gros))
 	reponse, donnees := deposer(t, serveur.URL, corps)
 	if reponse.StatusCode != http.StatusRequestEntityTooLarge {
@@ -329,9 +332,10 @@ func TestDepotLectureUniqueInterdite(t *testing.T) {
 	}
 }
 
-func TestDepotPourNonDisponible(t *testing.T) {
+func TestDepotPourRefuseSousDeclaratif(t *testing.T) {
 	// Instance déclarative (celle des tests) : refus pérenne, l'identité du
-	// lecteur étant falsifiable — même quand « pour » sera pris en charge.
+	// lecteur étant falsifiable — la prise en charge de « pour » ailleurs
+	// n'y change rien.
 	serveur, _ := serveurDeTest(t, nil)
 	corps := fmt.Sprintf(`{"contenu": %q, "pour": ["alice.durand"]}`, base64.StdEncoding.EncodeToString([]byte{0x01}))
 	reponse, donnees := deposer(t, serveur.URL, corps)
@@ -345,21 +349,58 @@ func TestDepotPourNonDisponible(t *testing.T) {
 	if !strings.Contains(enveloppe.Erreur.Message, "déclarative") {
 		t.Errorf("le refus déclaratif doit être motivé : %+v", enveloppe.Erreur)
 	}
+}
 
+func TestDepotPourAccepteSousAuthentification(t *testing.T) {
 	// Instance authentifiée (handler appelé directement, hors middleware) :
-	// refus « pas dans cette version » (la prise en charge arrive avec
-	// ARDOISE-0005).
+	// « pour » est accepté, validé et conservé avec l'ardoise.
 	cheminCertificat, cheminCle := genererMaterielTLS(t)
 	inst := instanceDeTest(t, cheminCertificat, cheminCle)
 	inst.Auth.Mecanisme = "mtls"
+	magasin := magasinDeTest(t)
+	corps := fmt.Sprintf(`{"contenu": %q, "pour": ["alice.durand", "@equipe-reseau"]}`, base64.StdEncoding.EncodeToString([]byte{0x01}))
 	requete := httptest.NewRequest(http.MethodPost, "/v1/ardoises", strings.NewReader(corps))
 	enregistreur := httptest.NewRecorder()
-	deposerArdoise(inst, magasinDeTest(t)).ServeHTTP(enregistreur, requete)
-	if enregistreur.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("statut = %d, attendu 422", enregistreur.Code)
+	deposerArdoise(inst, magasin, Dependances{}).ServeHTTP(enregistreur, requete)
+	if enregistreur.Code != http.StatusCreated {
+		t.Fatalf("statut = %d, attendu 201 (%s)", enregistreur.Code, enregistreur.Body.String())
 	}
-	if enveloppe := decoderErreurAPI(t, enregistreur.Body.Bytes()); !strings.Contains(enveloppe.Erreur.Message, "cette version") {
-		t.Errorf("erreur = %+v", enveloppe)
+	var depot reponseDepot
+	if err := json.Unmarshal(enregistreur.Body.Bytes(), &depot); err != nil {
+		t.Fatal(err)
+	}
+	a, err := magasin.Recuperer(depot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a.Pour) != 2 || a.Pour[0] != "alice.durand" || a.Pour[1] != "@equipe-reseau" {
+		t.Errorf("Pour = %v", a.Pour)
+	}
+}
+
+func TestDepotPourEntreesInvalides(t *testing.T) {
+	cheminCertificat, cheminCle := genererMaterielTLS(t)
+	inst := instanceDeTest(t, cheminCertificat, cheminCle)
+	inst.Auth.Mecanisme = "mtls"
+	cas := map[string]string{
+		"identité malformée": `["alice durand"]`,
+		"majuscules":         `["Alice.Durand"]`,
+		"groupe vide":        `["@"]`,
+		"entrée vide":        `[""]`,
+	}
+	for nom, pour := range cas {
+		t.Run(nom, func(t *testing.T) {
+			corps := fmt.Sprintf(`{"contenu": %q, "pour": %s}`, base64.StdEncoding.EncodeToString([]byte{0x01}), pour)
+			requete := httptest.NewRequest(http.MethodPost, "/v1/ardoises", strings.NewReader(corps))
+			enregistreur := httptest.NewRecorder()
+			deposerArdoise(inst, magasinDeTest(t), Dependances{}).ServeHTTP(enregistreur, requete)
+			if enregistreur.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("statut = %d, attendu 422", enregistreur.Code)
+			}
+			if enveloppe := decoderErreurAPI(t, enregistreur.Body.Bytes()); enveloppe.Erreur.Code != "option_refusee" {
+				t.Errorf("erreur = %+v", enveloppe)
+			}
+		})
 	}
 }
 
