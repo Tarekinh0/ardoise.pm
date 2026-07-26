@@ -6,21 +6,12 @@
 // garantie (docs/man.md, SÉCURITÉ) ; elle est purement locale : aucun
 // réseau, aucun fichier, aucune persistance.
 //
-// # Provenance — adapté de Qindu, internal/pii
-//
-// Le moteur (engine, recognizer, entity, overlap, entropy) et les
-// détecteurs sont adaptés du paquet internal/pii du projet Qindu
-// (/home/tarek/tools/qindu), d'origine AGPL-3.0. La reprise dans
-// ardoise.pm est approuvée par le titulaire des droits ; le pont de
-// licence (extraction en bibliothèque autonome sous double licence,
-// ADR-012) est suivi au registre des risques sous R-006.
-//
 // # Sous-ensemble retenu
 //
 // Seuls les détecteurs d'AUTHENTIFIANTS sont repris : clés privées
 // (privatekey), JWT (jwt), préfixes de secrets connus (secret_prefix) et
 // secrets à entropie (secret_entropy), avec l'infrastructure qu'ils
-// exigent. Les détecteurs de données personnelles de Qindu (creditcard,
+// exigent. Les détecteurs de données personnelles (creditcard,
 // email, iban, phone, name_email) sont volontairement écartés : l'exigence
 // d'ardoise (ES-12, R35) vise le dépôt d'authentifiants dans un service
 // non prévu à cet effet, pas la détection de données personnelles.

@@ -1,7 +1,3 @@
-// Adapté de Qindu, paquet internal/pii — auxiliaire de tests repris de
-// email_test.go, dont les tests eux-mêmes sont écartés avec les détecteurs
-// de données personnelles (voir le commentaire du paquet, secrets.go).
-
 package secrets
 
 import "strings"

@@ -1,9 +1,3 @@
-// Adapté de Qindu, paquet internal/pii — fichier recognizer.go (origine
-// AGPL-3.0 ; reprise approuvée par le titulaire des droits, pont de
-// licence suivi au registre des risques R-006). L'interface
-// EmailAwareRecognizer d'origine est écartée avec les détecteurs de
-// données personnelles — voir le commentaire du paquet (secrets.go).
-
 package secrets
 
 // Recognizer is the interface each detector implements.

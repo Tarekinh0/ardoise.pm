@@ -285,7 +285,7 @@ Trois modes de couverture : **C** — satisfait par construction (aucune configu
 ### ADR-004 — Détection de secrets côté client ; analyse de contenu côté serveur en mode analysé
 **Statut : accepté.**
 **Contexte.** Le chiffrement de bout en bout est l'objectif nominal du produit, mais R58 exige une analyse systématique des contenus transitant par le système d'échange externe. Un serveur aveugle ne peut pas analyser ce qu'il ne peut pas lire.
-**Décision.** Mode **aveugle** : chiffrement de bout en bout, R58 sans objet, détection de secrets côté client avant chiffrement (moteur issu de Qindu). Mode **analysé** : la détection de secrets reste côté client ; l'analyse de contenu s'exécute côté serveur, de manière **synchrone et bloquante** — le contenu n'est mis à disposition qu'après verdict favorable, et le dépôt est refusé en l'absence de verdict (*fail-closed*). Après verdict, le serveur chiffre le contenu avec une clé remise à l'émetteur puis effacée (cécité a posteriori) ; le contenu n'est jamais écrit en clair.
+**Décision.** Mode **aveugle** : chiffrement de bout en bout, R58 sans objet, détection de secrets côté client avant chiffrement. Mode **analysé** : la détection de secrets reste côté client ; l'analyse de contenu s'exécute côté serveur, de manière **synchrone et bloquante** — le contenu n'est mis à disposition qu'après verdict favorable, et le dépôt est refusé en l'absence de verdict (*fail-closed*). Après verdict, le serveur chiffre le contenu avec une clé remise à l'émetteur puis effacée (cécité a posteriori) ; le contenu n'est jamais écrit en clair.
 **Conséquences.** En mode analysé, le serveur accède transitoirement au contenu en clair : le chiffrement de bout en bout est une propriété du mode aveugle uniquement, et le client l'affiche explicitement à l'utilisateur avant tout envoi. La conformité R58 est systématique par construction.
 
 ### ADR-005 — Journaliser les actes, jamais les contenus
@@ -334,7 +334,7 @@ Trois modes de couverture : **C** — satisfait par construction (aucune configu
 **Statut : accepté, sous réserve de validation juridique.**
 **Contexte.** Objectifs : code source public, lisible et auditable ; usage, déploiement et modification gratuits pour tous ; interdiction unique — la vente du logiciel ou de services dont la valeur en provient substantiellement — opposable à tous, éditeur inclus. Les licences libres au sens OSI (AGPL, GPL, Apache seule, EUPL, CeCILL) autorisent l'exploitation commerciale. Les licences purement non commerciales (PolyForm Noncommercial, Prosperity) interdisent aussi l'usage interne par une entité à but lucratif, ce qui contredit la gratuité universelle visée.
 **Décision.** Apache 2.0 complétée par la Commons Clause : toutes les libertés d'Apache sont conservées à l'exception du droit de vendre. Le projet se présente comme « source disponible » et ne revendique pas le label « open source ». Les contributions externes sont soumises à un accord de contribution préservant la capacité de gestion de licence du projet.
-**Conséquences.** Le moteur de détection de secrets issu de Qindu (AGPL-3.0) ne peut pas être incorporé tel quel : l'AGPL impose que l'œuvre dérivée reste AGPL, incompatible avec la Commons Clause. Le moteur sera extrait en bibliothèque autonome publiée en double licence par le titulaire des droits, ce qui suppose la réunion des droits sur l'ensemble des contributions (accord de contribution dès l'ouverture des dépôts).
+
 
 ### ADR-013 — Rémanence client optionnelle, autorisée par le serveur
 **Statut : accepté.**

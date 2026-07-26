@@ -1,8 +1,3 @@
-// Adapté de Qindu, paquet internal/pii — fichier engine_test.go (origine
-// AGPL-3.0 ; reprise approuvée par le titulaire des droits, pont de
-// licence suivi au registre des risques R-006). Cas transposés vers le
-// sous-ensemble de détecteurs conservé.
-
 package secrets
 
 import (

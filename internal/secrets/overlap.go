@@ -1,9 +1,3 @@
-// Adapté de Qindu, paquet internal/pii — fichier overlap.go (origine
-// AGPL-3.0 ; reprise approuvée par le titulaire des droits, pont de
-// licence suivi au registre des risques R-006). La table des priorités est
-// réduite aux types d'authentifiants conservés — voir le commentaire du
-// paquet (secrets.go).
-
 package secrets
 
 import "sort"
