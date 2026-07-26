@@ -35,12 +35,17 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       sha256: ${{ steps.hash.outputs.sha256 }}
+      repo_lower: ${{ steps.repo.outputs.lower }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
       - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b  # v5.4.0
         with:
           go-version: stable
+
+      - name: Normaliser le nom du dépôt (lowercase pour GHCR)
+        id: repo
+        run: echo "lower=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - name: Extraire la version du tag
         id: version
@@ -224,28 +229,28 @@ jobs:
 
       - name: Construire l'image conteneur (PR-002, PR-112)
         run: |
-          docker build -t ghcr.io/${{ github.repository }}/ardoise:${{ steps.version.outputs.VERSION }} .
-          docker tag ghcr.io/${{ github.repository }}/ardoise:${{ steps.version.outputs.VERSION }} \
-            ghcr.io/${{ github.repository }}/ardoise:latest
+          docker build -t ghcr.io/${{ steps.repo.outputs.lower }}/ardoise:${{ steps.version.outputs.VERSION }} .
+          docker tag ghcr.io/${{ steps.repo.outputs.lower }}/ardoise:${{ steps.version.outputs.VERSION }} \
+            ghcr.io/${{ steps.repo.outputs.lower }}/ardoise:latest
 
       - name: Pousser l'image conteneur vers GHCR (PR-002)
         run: |
-          docker push ghcr.io/${{ github.repository }}/ardoise:${{ steps.version.outputs.VERSION }}
-          docker push ghcr.io/${{ github.repository }}/ardoise:latest
+          docker push ghcr.io/${{ steps.repo.outputs.lower }}/ardoise:${{ steps.version.outputs.VERSION }}
+          docker push ghcr.io/${{ steps.repo.outputs.lower }}/ardoise:latest
 
       - name: Signer l'image conteneur avec cosign (SRQ-P002-3, PR-002)
         run: |
-          cosign sign --yes ghcr.io/${{ github.repository }}/ardoise:${{ steps.version.outputs.VERSION }}
+          cosign sign --yes ghcr.io/${{ steps.repo.outputs.lower }}/ardoise:${{ steps.version.outputs.VERSION }}
 
       - name: Attacher le SBOM à l'image conteneur (PR-002)
         run: |
-          cosign attach sbom --sbom ardoise.spdx.json ghcr.io/${{ github.repository }}/ardoise:${{ steps.version.outputs.VERSION }}
+          cosign attach sbom --sbom ardoise.spdx.json ghcr.io/${{ steps.repo.outputs.lower }}/ardoise:${{ steps.version.outputs.VERSION }}
 
       # PR-106 : provenance SLSA pour l'image conteneur (après push)
       - name: Générer provenance SLSA pour l'image conteneur (PR-106)
         run: |
           cosign attest --yes --predicate ardoise.spdx.json \
-            ghcr.io/${{ github.repository }}/ardoise:${{ steps.version.outputs.VERSION }}
+            ghcr.io/${{ steps.repo.outputs.lower }}/ardoise:${{ steps.version.outputs.VERSION }}
 
       - name: Publier la release GitHub
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2 (Node 24)
@@ -272,7 +277,7 @@ jobs:
 
             ### Image conteneur
             ```
-            docker pull ghcr.io/${{ github.repository }}/ardoise:${{ steps.version.outputs.VERSION }}
+            docker pull ghcr.io/${{ steps.repo.outputs.lower }}/ardoise:${{ steps.version.outputs.VERSION }}
             ```
 
             ### Provenance SLSA
