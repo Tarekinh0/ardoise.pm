@@ -54,11 +54,11 @@ USER 1000:1000
 
 # Binaire seul — aucun fichier source, aucune clef, aucun certificat
 # (DPO-P-001-1 : seul le binaire compile est copie dans le stage final)
-COPY --from=builder --chmod=500 /ardoise /ardoise
+COPY --from=builder --chmod=555 /ardoise /ardoise
 
 # Port d'écoute standard (SRQ-P001 containers spec)
 EXPOSE 8443
 
 # Point d'entrée en forme exec (pas de shell) — ubi-micro n'a pas /bin/sh
 # (SRQ-P001-3 : pas de shell form)
-ENTRYPOINT ["/ardoise", "serve", "--config", "/etc/ardoise/config.json"]
+ENTRYPOINT ["/ardoise", "serve", "--config", "/etc/ardoise/ardoise.json"]

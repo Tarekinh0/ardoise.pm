@@ -32,7 +32,7 @@ services:
       # Configuration montée en lecture seule (SRQ-P001-5)
       - type: bind
         source: ./tmp/test-config.json
-        target: /etc/ardoise/config.json
+        target: /etc/ardoise/ardoise.json
         read_only: true
       # Espace inscriptible temporaire (tmpfs)
       - type: tmpfs
@@ -139,7 +139,7 @@ services:
       - ardoise-net
     # Shell form utilisé car nc nécessite une redirection (pipe) — service de
     # test uniquement. Le shell est Alpine /bin/sh, aucune commande arbitraire.
-    command: ["sh", "-c", "nc -l -u 10514 | tee /tmp/syslog.log"]
+    command: ["sh", "-c", "nc -l -u -p 10514 | tee /tmp/syslog.log"]
     volumes:
       - type: tmpfs
         target: /tmp
@@ -168,7 +168,9 @@ services:
 
 networks:
   ardoise-net:
-    internal: true
+    # NOTE : internal: false pour permettre le port forwarding hôte→conteneur.
+    # La sécurité réseau est assurée par iptables au niveau hôte en production.
+    internal: false
     driver: bridge
 
 volumes:
