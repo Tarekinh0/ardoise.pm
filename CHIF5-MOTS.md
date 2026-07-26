@@ -1,10 +1,11 @@
 # CHIF-5 — Récupération par 5 mots mnémoniques
 
-**Statut** : Spécification d'implémentation — DevSecOps  
+**Statut** : implémenté, testé — intégré en V1  
 **Date** : 2026-07-25  
 **Produit** : ardoise.pm  
 **ADR de référence** : docs/dat.md §5.4, annexe B  
-**Version cible** : v0.2  
+**Version cible** : V1  
+**Niveau** : R−, hors contexte réglementé  
 
 ---
 
@@ -35,7 +36,7 @@ Une analyse initiale proposait 24 mots BIP39 encodant directement une clé AES-2
 | Format chiffré | Version `0x06` : `0x06 ‖ blob_salt(16) ‖ nonce(12) ‖ scellé` |
 | Coût au get | ~0,5 seconde (un seul appel Argon2id) |
 | Nouvel octet de version | `0x06` |
-| Compatibilité | Coexiste avec CHIF-1/2/3/4/MD existants |
+| Compatibilité | Coexiste avec CHIF-2 (cle), CHIF-4 (serveur), CHIF-MD (multi-dest.) |
 
 ### 1.4 Compromis de sécurité assumé
 
@@ -47,7 +48,7 @@ Une analyse initiale proposait 24 mots BIP39 encodant directement une clé AES-2
 | Brute-force 100K machines | Infaisable (2^256) | ~2,8 ans pour l'espace entier (espérance 1,4 an) | ✅ Oui — fenêtre TTL 7 jours << 1,4 an |
 | Partage sans état | Client seulement (id#cle suffit) | Client seulement (5 mots suffisent) | ✅ Oui — identique |
 
-**Rationnel** : pour la durée de vie maximale d'une ardoise (7 jours, ADR-003), un acteur disposant de 100 000 machines spécialisées Argon2id ne couvre que ~0,7% de l'espace des passphrases. Le risque résiduel est acceptable pour le niveau de sensibilité cible (DR, II 901). Pour des contenus de sensibilité supérieure, l'utilisateur reste libre d'utiliser le mode `id#cle` standard (256 bits).
+**Rationnel** : pour la durée de vie maximale d'une ardoise (7 jours, ADR-003), un acteur disposant de 100 000 machines spécialisées Argon2id ne couvre que ~0,7% de l'espace des passphrases. Le risque résiduel est acceptable pour le niveau de sensibilité cible. Pour des contenus de sensibilité supérieure, l'utilisateur reste libre d'utiliser le mode `id#cle` standard (256 bits).
 
 ---
 
@@ -804,7 +805,7 @@ Tous les tests existants (`go test ./...`) doivent continuer à passer. Aucune m
 | Attaque par dictionnaire | Sans objet : mots générés aléatoirement, pas choisis | N/A |
 | Préimage ID → mots | ID = HKDF(Argon2id(mots)). Préimage Argon2id infaisable | Négligeable |
 
-**Conclusion** : Pour la TTL maximale de 7 jours, même un acteur étatique disposant d'un million de machines dédiées Argon2id (hypothèse extrême : 128 GiB RAM × 1M = 128 PiB de RAM totale) n'a qu'une probabilité de succès de ~3,5% par ardoise ciblée. La protection est **adéquate** pour le niveau DR (II 901).
+**Conclusion** : Pour la TTL maximale de 7 jours, même un acteur étatique disposant d'un million de machines dédiées Argon2id (hypothèse extrême : 128 GiB RAM × 1M = 128 PiB de RAM totale) n'a qu'une probabilité de succès de ~3,5% par ardoise ciblée. La protection est suffisante pour une TTL de 7 jours. Niveau R−, hors contexte réglementé.
 
 ### 7.2 Ce à quoi on renonce explicitement
 

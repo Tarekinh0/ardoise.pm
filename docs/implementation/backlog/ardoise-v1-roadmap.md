@@ -27,7 +27,7 @@ TLS transport, and authenticated access.
 | Sprint | Name | Key Deliverable |
 |---|---|---|
 | ARDOISE-0001 | Foundation | Go scaffold, TOML config, CLI, HTTP skeleton, --verifier, --politique, info |
-| ARDOISE-0002 | Blind Mode | AES-256-GCM, Argon2id, CHIF-1/2/3, push/get, identifier format, fingerprint |
+| ARDOISE-0002 | Blind Mode | AES-256-GCM, Argon2id, CHIF-2/5/MD, push/get, identifier format, fingerprint |
 | ARDOISE-0003 | Store & Lifecycle | RET-1/2/3, TTL-1/2/3, expiry sweep, burn-after-read, code 5 |
 | ARDOISE-0004 | Transport & Auth | TLS-1/2/3, AUTH-1/2/3/4, mTLS, PKCS#11, tokens, code 6 |
 

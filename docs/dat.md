@@ -74,7 +74,7 @@ Aucune base de données. Le serveur maintient un magasin éphémère d'objets `{
 
 ### 4.3 Identifiants et clés
 
-En mode aveugle, le client génère une clé de chiffrement aléatoire par ardoise ; l'identifiant remis à l'émetteur est composé de l'identifiant serveur et du matériel de clé, ce dernier ne transitant jamais vers le serveur. Lorsqu'un mot de passe utilisateur est employé, la clé en est dérivée côté client (fonction de dérivation et paramètres en annexe B). Le serveur retourne l'empreinte du contenu chiffré ; le client la vérifie à la récupération.
+En mode aveugle, le client génère une clé de chiffrement aléatoire par ardoise ; l'identifiant remis à l'émetteur est composé de l'identifiant serveur et du matériel de clé, ce dernier ne transitant jamais vers le serveur. En schéma CHIF-5 (mots mnémoniques), la clé est dérivée des mots par Argon2id côté client, avec un blob_salt HKDF pour diversifier la clé par ardoise (annexe B). Le serveur retourne l'empreinte du contenu chiffré ; le client la vérifie à la récupération.
 
 ### 4.4 Configuration d'instance
 
@@ -126,12 +126,13 @@ Aucune option ne permet la conservation illimitée : la durée de vie est une pr
 
 ### 5.4 Protection des contenus
 
+Le tableau ci-dessous recense les schémas de protection. CHIF-1 (clé aléatoire + mot de passe, deux secrets) et CHIF-3 (clé dérivée d'un mot de passe seul) ont été retirés en V1 : CHIF-5 (mots mnémoniques) offre une alternative sans matériel de clé persistant côté émetteur, avec une entropie maîtrisée de 55 bits (5 mots × 11 bits).
+
 | ID | Niveau | Option | Conditions d'emploi |
 |---|---|---|---|
-| CHIF-1 | **R+** | Chiffrement côté client par clé aléatoire à usage unique, complété d'un mot de passe utilisateur (deux secrets requis pour ouvrir) | Le porteur du seul identifiant ne peut pas lire le contenu. Suppose un canal distinct pour le mot de passe. |
 | CHIF-2 | **R** | Chiffrement côté client par clé aléatoire à usage unique | Option nominale du mode aveugle. |
-| CHIF-3 | **R‑** | Chiffrement côté client par clé dérivée d'un mot de passe choisi par l'utilisateur | Entropie dépendante du choix humain, malgré une dérivation à l'état de l'art (annexe B). |
 | CHIF-4 | **R‑‑** | Chiffrement par le serveur après analyse, clé remise à l'émetteur puis effacée (cécité a posteriori) | Propre au mode analysé, où R58 impose l'accès au contenu. Le serveur voit le clair pendant la fenêtre d'analyse (annexe A.3). |
+| CHIF-5 | **R−** | 5 mots mnémoniques BIP39 français, dérivés côté client par Argon2id (sel fixe) puis HKDF avec blob_salt variable | Alternative au mode aveugle sans matériel de clé persistant : les mots remplacent la clé aléatoire. Incompatible avec le mode analysé (CHIF-4). Incompatible avec « --pour ». |
 
 ### 5.5 Analyse de contenu
 
@@ -385,7 +386,7 @@ Trois modes de couverture : **C** — satisfait par construction (aucune configu
 | A2 | Compromission du serveur ardoise | Mode aveugle : le serveur ne détient que du chiffré et des métadonnées ; les clés n'y ont jamais existé. Mode analysé : exposition limitée aux contenus présents pendant la fenêtre d'analyse (A.3) |
 | A3 | Administrateur malveillant de l'instance | Mêmes propriétés que A2 ; journalisation vers une zone qu'il n'administre pas (JOURN-1/2, R46) — parade inopérante avec JOURN-3 ou JOURN-4 |
 | A4 | Saisie physique ou réquisition du serveur | Mode aveugle : rien d'exploitable hors chiffré et métadonnées ; après expiration, rien du tout (ES-1). RET-3 étend transitoirement l'exposition au support |
-| A5 | Tiers obtenant un identifiant complet | Le porteur de l'identifiant détient la clé ; la protection de l'identifiant incombe à l'émetteur (canal hors périmètre). Durée de vie courte et destruction à première lecture réduisent la fenêtre ; CHIF-1 la neutralise |
+| A5 | Tiers obtenant un identifiant complet | Le porteur de l'identifiant détient la clé ; la protection de l'identifiant incombe à l'émetteur (canal hors périmètre). Durée de vie courte, destruction à première lecture et TTL contraignant réduisent la fenêtre |
 | A6 | Poste client compromis | Hors périmètre produit : hypothèse HE-2 (poste d'administration durci, chapitre 4 du guide) |
 | A7 | Usurpation d'identité d'un émetteur | Neutralisée par AUTH-1/2, atténuée par AUTH-3 ; **non couverte** par AUTH-4, où seule la maîtrise de l'accès réseau fait obstacle |
 | A8 | Exploitation des journaux | Les journaux ne contiennent ni contenu, ni clé, ni identifiant complet |
@@ -395,7 +396,7 @@ Trois modes de couverture : **C** — satisfait par construction (aucune configu
 
 1. **Fenêtre en clair du mode analysé** : pendant l'analyse, le contenu est en clair en mémoire serveur ; une compromission du serveur durant cette fenêtre expose les contenus en transit. Atténuation : durée bornée par le délai ICAP, aucune écriture en clair, serveur durci (HE-1, corpus PA-022 applicable au serveur en tant que ressource d'administration).
 2. **Effacement mémoire en Go** : le ramasse-miettes ne garantit pas l'absence de copies résiduelles du matériel de clé malgré l'effacement explicite. Atténuation : manipulation en tampons dédiés, effacement systématique, hypothèses HE-1/HE-2.
-3. **Transmission de l'identifiant** : le canal par lequel l'émetteur transmet l'identifiant au destinataire est hors périmètre ; un identifiant intercepté équivaut à la connaissance du contenu jusqu'à expiration, sauf emploi de CHIF-1.
+3. **Transmission de l'identifiant** : le canal par lequel l'émetteur transmet l'identifiant au destinataire est hors périmètre ; un identifiant intercepté équivaut à la connaissance du contenu jusqu'à expiration.
 4. **Rémanence côté client (CACHE-2, CACHE-3)** : le contenu survit sur le poste destinataire après sa destruction sur le serveur. La garantie de disparition repose alors sur le respect de l'échéance par le poste et sur son durcissement (HE-2). Le cache ne contient que du chiffré, la clé restant dans l'identifiant détenu par l'utilisateur.
 5. **Identification déclarative (AUTH-4)** : l'identité consignée n'est pas vérifiée et peut être falsifiée par tout client autorisé à joindre l'instance. Acceptée uniquement hors contexte réglementé, sur réseau d'administration cloisonné ; les journaux la marquent comme déclarative.
 

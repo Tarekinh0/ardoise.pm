@@ -44,7 +44,7 @@ risks:
     description: >
       The channel by which the emitter transmits the identifier to the recipient
       is outside the product perimeter. An intercepted identifier grants
-      content access until expiry — unless CHIF-1 (password complement) is
+      content access until expiry — unless CHIF-MD (multi-destinataires) or CHIF-5 (mo5 mnemoniques) is
       used, which neutralizes this risk.
     severity: MEDIUM
     source: docs/dat.md A.3-3
@@ -142,15 +142,16 @@ sprints:
     description: |
       AES-256-GCM authenticated encryption/decryption (unique key per ardoise,
       96-bit random nonce), Argon2id key derivation (64 MiB, 3 iterations,
-      parallelism 4, 128-bit salt), CHIF-2 (random key), CHIF-3 (password-derived
-      key), CHIF-1 (random key + password), identifier format with URL fragment
+      parallelism 4, 128-bit salt), CHIF-2 (random key, a usage unique), CHIF-5
+      (5 mots mnemoniques BIP39, derive par Argon2id), CHIF-MD (multi-destinataires,
+      ADR-014), identifier format with URL fragment
       security (# separator), SHA-256 fingerprint, push/get in blind mode,
-      --mot-de-passe, --duree, --lecture-unique, --fichier, --sortie, stdin
+      --mots, --duree, --lecture-unique, --fichier, --sortie, stdin
       identifier reading, memory hygiene ([]byte-only keys, explicit zeroing),
       constant-time comparisons, no compression before encryption.
       Full crypto test suite with test vectors.
     adrs: [ADR-003, ADR-004]
-    options: [CHIF-1, CHIF-2, CHIF-3]
+    options: [CHIF-2, CHIF-5, CHIF-MD]
     inherited_from: []
     risks_resolved: []
 

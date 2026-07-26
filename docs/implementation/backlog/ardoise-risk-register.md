@@ -71,7 +71,7 @@ to the recipient is outside the product's perimeter. An intercepted
 identifier grants content access until expiry.
 
 **Mitigations**:
-- CHIF-1 (password complement) neutralizes this risk: two secrets required
+- CHIF-MD (multi-destinataires) protects against server compromise; CHIF-5 (mo5 mnemoniques) avoids identifier exposure
 - TTL bounds limit the exposure window
 - Burn-after-reading destroys content after first access
 - Manual section warns users: "L'identifiant contient la cle... il se

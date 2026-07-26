@@ -77,8 +77,8 @@ Le comportement de sécurité est déterminé par l'**instance**, non par le cli
 **-b**, **--lecture-unique**
 : Détruit le contenu dès sa première récupération. Certaines instances imposent ce comportement ; d'autres l'interdisent lorsqu'un même contenu doit servir plusieurs destinataires.
 
-**-p**, **--mot-de-passe**
-: Demande un mot de passe au terminal et l'intègre à la protection du contenu. Selon la politique de l'instance, il complète la clé aléatoire (le destinataire doit alors disposer des deux) ou s'y substitue. Jamais passé en argument de ligne de commande.
+**--mots**
+: Chiffre le contenu avec 5 mots mnémoniques BIP39 français saisis interactivement (CHIF-5, R−). Les mots sont dérivés par Argon2id pour produire une clé AES-256 ; le blob_salt stocké dans l'en-tête assure que deux ardoises avec les mêmes mots ont des clés différentes. Le contenu se récupère avec « ardoise get --mots » et les mêmes mots. Incompatible avec « --pour » uniquement. En mode analysé, le client fournit la clé de chiffrement au serveur (CHIF-5 analysé) ; en mode aveugle, le chiffrement est intégralement local.
 
 **-f**, **--fichier** *CHEMIN*
 : Dépose le contenu du fichier indiqué, équivalent à le fournir en argument positionnel.
@@ -111,8 +111,15 @@ La taille de contenu est bornée par l'instance (`contenu.taille_max`, 256 Kio p
 **--cache-seul**
 : Ne contacte pas l'instance et sert exclusivement depuis le cache local. Échoue si l'entrée est absente ou expirée. La politique de cache (CACHE-2 « borne » ou CACHE-3 « libre »), consignée dans l'entrée au moment de l'écriture, gouverne la lecture : une entrée « borne » échue est détruite et n'est jamais servie, même hors ligne.
 
+**--mots**
+: Récupère une ardoise déposée avec 5 mots mnémoniques (CHIF-5). Les mots sont saisis interactivement au terminal ; l'identifiant serveur et la clé de chiffrement en sont dérivés. Aucun identifiant n'est passé en argument lorsque cette option est employée : les mots suffisent à retrouver l'ardoise. Incompatible avec l'identifiant standard et « --verifier-empreinte ».
+
 **--verifier-empreinte** *EMPREINTE*
 : Compare l'empreinte du contenu chiffré reçu à la valeur fournie et refuse en cas d'écart. Format : 64 caractères hexadécimaux, préfixe `sha256:` admis.
+
+**--argument**
+: Lit l'identifiant depuis la ligne de commande plutôt que sur l'entrée standard. Par défaut, l'identifiant est lu sur stdin afin de ne pas apparaître dans les arguments du processus ni dans l'historique du shell (voir **SÉCURITÉ**). Cette option rétablit le passage en argument pour les usages où l'identifiant n'est pas sensible (tests, scripts maîtrisés).
+
 
 ## OPTIONS DE SERVEUR (serve)
 
@@ -224,8 +231,8 @@ Format JSON strict : tout champ inconnu est une erreur ; toute option omise pren
 
 En mode `"analyse"`, la source des identités (IGC des certificats, service d'identité des jetons) doit être distincte du SI d'administration (R56, DAT §6.3).
 
-**contenu** — protection des contenus (CHIF-1 à CHIF-4, DAT §5.4). Défaut : `"cle+motdepasse"` (CHIF-1, R+) en mode aveugle, `"serveur"` (CHIF-4) en mode analysé.
-- `chiffrement` : `"cle+motdepasse"` (CHIF-1), `"cle"` (CHIF-2), `"motdepasse"` (CHIF-3), `"serveur"` (CHIF-4). En mode `"analyse"`, seule la valeur `"serveur"` est admise ; en mode `"aveugle"`, `"serveur"` est refusé.
+**contenu** — protection des contenus (CHIF-2, CHIF-4, DAT §5.4). Défaut : `"cle"` (CHIF-2, R) en mode aveugle, `"serveur"` (CHIF-4, R‑‑) en mode analysé.
+- `chiffrement` : `"cle"` (CHIF-2) ou `"serveur"` (CHIF-4, mode analysé uniquement). Les schémas CHIF-5 (mo5 mnémoniques) et CHIF-MD (multi-destinataires) sont des choix exclusivement client (flags `--mots` et `--annuaire`), jamais des valeurs de configuration serveur. En mode `"analyse"`, seule la valeur `"serveur"` est admise ; en mode `"aveugle"`, `"serveur"` est refusé.
 - `taille_max` : taille maximale d'un contenu en notation lisible (`"256Kio"`, `"1Mio"`, `"512o"`). Défaut : `"256Kio"`.
 
 **retention** — conservation et durée de vie (RET-1 à RET-3, TTL-1 à TTL-3, DAT §5.3). Défauts : mémoire vive, lecture unique imposée (RET-1, R+), 1 heure.
@@ -360,13 +367,6 @@ Récupérer sans exposer l'identifiant aux autres utilisateurs de la machine :
 $ ardoise get - < identifiant.txt
 ```
 
-Déposer un fichier avec une durée courte et un mot de passe complémentaire :
-
-```
-$ ardoise -t 30m -p -f config-tmp.conf
-Mot de passe :
-```
-
 Adresser un extrait à une personne, puis à une équipe :
 
 ```
@@ -431,8 +431,6 @@ Configuration conforme aux minima II 901. Aucune incohérence détectée.
 
 **Les arguments de ligne de commande sont visibles.** Sur une machine partagée, `ps` expose les arguments des processus des autres utilisateurs, et l'historique du shell conserve les commandes. Préférez `ardoise get -` avec l'identifiant sur l'entrée standard.
 
-**Le mot de passe n'est jamais un argument.** Il est demandé au terminal. Aucune option ne permet de le fournir en ligne de commande.
-
 **Le cache local contient du chiffré, jamais de clé.** Lorsqu'il est autorisé, il conserve le contenu tel qu'il a été reçu, indexé par l'empreinte de l'identifiant serveur : sans l'identifiant correspondant, il est inexploitable. Il n'en demeure pas moins une rémanence sur le poste, purgée au plus tard à l'échéance de l'ardoise.
 
 **Le mode analysé n'est pas un chiffrement de bout en bout.** L'instance accède au contenu en clair le temps de l'analyse imposée. Le client l'indique avant chaque dépôt. En mode aveugle, l'instance ne peut à aucun moment lire les contenus.
@@ -466,6 +464,16 @@ La fonction suivante est implémentée ; la seconde est à l'étude pour une ver
 Les identifiants d'options (`AUTH-1`, `CHIF-2`, `TTL-2`, `CACHE-1`…) employés dans la configuration et dans la sortie de `--verifier` sont ceux du document d'architecture technique, section « Configurations disponibles ». Les minima applicables aux systèmes relevant de l'II 901 et de l'IGI 1300 y figurent en section « Configurations exigées en contexte réglementé ». La sortie de `ardoise serve --politique` est destinée à être versée telle quelle au dossier d'homologation de l'instance.
 
 L'option `--verifier` et la sortie de `ardoise serve --politique` lisent la configuration effective — défauts prudents appliqués — et non le fichier brut. C'est cette politique effective qui fait foi pour l'homologation.
+## DISTRIBUTION ET VÉRIFICATION
+
+Le binaire signé, sa signature détachée Ed25519, la clé publique et le SBOM SPDX sont publiés dans chaque archive de release. Le script `verifier.sh`, fourni dans l'archive, contrôle l'intégrité du binaire hors ligne — sans aucune connexion réseau — en trois étapes :
+
+1. Vérification de l'empreinte SHA-256 du binaire contre l'empreinte de référence gravée dans le script.
+2. Vérification de la signature détachée Ed25519 (`ardoise.sig`) avec la clé publique (`ardoise.pub`).
+3. Résumé du SBOM au format SPDX (`ardoise.spdx.json`).
+
+Le script exige OpenSSL 3.0+ (ou LibreSSL) et fonctionne sur toute station d'administration durcie. Toute divergence bloque l'exécution : le binaire ne doit pas être exécuté sans vérification d'intégrité préalable.
+
 
 ## VOIR AUSSI
 

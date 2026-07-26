@@ -6,8 +6,24 @@ Ardoise est un pastebin interne — un binaire unique Go qui depose et recupere
 des blocs de texte sur une instance maitrisee. Le contenu est chiffre, horodate,
 et detruit a echeance. Aucune archive, aucun listage, aucune recherche.
 
-Deployable depuis un reseau d'administration standard jusqu'aux environnements
-relevant de l'II 901 (Diffusion Restreinte) et de l'IGI 1300 (classifie).
+**Statut : V1 implementee, testee.**  
+30/31 tests d'integration PASS. Deployable depuis un reseau d'administration
+standard jusqu'aux environnements relevant de l'II 901 (Diffusion Restreinte)
+et de l'IGI 1300 (classifie).
+
+---
+
+## Schemas de chiffrement
+
+| Schema | Octet | Principe | Conformite |
+|---|---|---|---|
+| **CHIF-2** | `0x01` | Cle AES-256 aleatoire (`id#cle`) | R (II 901, IGI 1300) |
+| **CHIF-4** | `0x04` | Chiffrement serveur (mode analyse) | R (II 901, IGI 1300) |
+| **CHIF-5** | `0x06` | 5 mots BIP39 + Argon2id (`--mots`) | R− (hors contexte reglemente) |
+| **CHIF-MD** | `0x05` | Multi-destinataires (ECDH) | R (II 901, IGI 1300) |
+
+CHIF-1 et CHIF-3 (mot de passe, cle+motdepasse) ont ete retires en V1.
+Details : [`docs/dat.md` §5.4](docs/dat.md) et [`CHIF5-MOTS.md`](CHIF5-MOTS.md).
 
 ---
 
@@ -30,8 +46,14 @@ peut pas l'affaiblir.
 echo "extrait de log" | ardoise
 tail -200 /var/log/nginx/error.log | ardoise -t 30m -b
 
+# Deposer avec mots mnemoniques (CHIF-5)
+echo "message" | ardoise --mots
+
 # Recuperer
 ardoise get a7f3k9x2#Zt8mQ4v...
+
+# Recuperer avec mots
+ardoise get --mots
 
 # Recuperer sans exposer l'identifiant dans ps
 ardoise get - < identifiant.txt
@@ -52,10 +74,11 @@ se transmet par un canal maitrise.
 ## Architecture
 
 - **Binaire unique** Go (compilation statique) — roles client et serveur
-- **Chiffrement** AES-256-GCM, cle unique par ardoise, Argon2id pour mots de passe
+- **Chiffrement** AES-256-GCM, cle unique par ardoise, Argon2id pour CHIF-5
 - **Transport** TLS 1.3, mTLS, jetons, identification declarative (R+ a R--)
 - **Duree de vie** configurable (1h a 7j), destruction a la premiere lecture
 - **Analyse** ICAP synchrone bloquante (RFC 3507, fail-closed) en mode analyse
+- **Throttling** GET limite a 30 requetes/min par IP
 - **Journalisation** metadonnees uniquement (jamais le contenu), chainage optionnel
 - **Marquage** automatique du niveau de sensibilite
 - **Cache client** optionnel, purge a echeance, sans cle
@@ -63,7 +86,9 @@ se transmet par un canal maitrise.
 - **Distribution** paquets signes, builds reproductibles, installation hors ligne
 
 Architecture complete : [`docs/dat.md`](docs/dat.md).  
-Manuel : [`docs/man.md`](docs/man.md).
+Manuel : [`docs/man.md`](docs/man.md).  
+Audit : [`AUDIT.md`](AUDIT.md).  
+CHIF-5 : [`CHIF5-MOTS.md`](CHIF5-MOTS.md).
 
 ---
 
@@ -106,4 +131,4 @@ vente interdite. Voir [ADR-012](docs/dat.md).
 
 [`docs/implementation/backlog/ardoise-v1-roadmap.md`](docs/implementation/backlog/ardoise-v1-roadmap.md).
 
-Etat : **pre-implementation** — 10 sprints planifies, phase 1 prete a demarrer.
+Etat : **V1 implementee** — 10 sprints executes, 30/31 tests integration PASS.
