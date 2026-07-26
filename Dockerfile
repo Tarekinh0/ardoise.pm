@@ -56,6 +56,11 @@ USER 1000:1000
 # (DPO-P-001-1 : seul le binaire compile est copie dans le stage final)
 COPY --from=builder --chmod=555 /ardoise /ardoise
 
+# Manuel utilisateur (ARDOISE(1)) — accessible via « ardoise man ».
+# La page troff n'est pas installée dans /usr/share/man (ubi-micro n'a
+# pas man(1)), mais « ardoise man » l'affiche intégralement.
+COPY --chmod=444 docs/man.md /usr/share/doc/ardoise/man.md
+
 # Port d'écoute standard (SRQ-P001 containers spec)
 EXPOSE 8443
 

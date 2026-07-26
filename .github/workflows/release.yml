@@ -135,6 +135,11 @@ jobs:
       - name: Installer syft (SBOM)
         uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610  # v0.24.0
 
+      - name: Générer la page de manuel (troff)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq pandoc
+          pandoc docs/man.md -s -t man -o ardoise.1
+
       - name: Générer SBOM SPDX (SRQ-P002-4)
         run: |
           syft packages dir:. -o spdx-json=ardoise.spdx.json
@@ -142,7 +147,7 @@ jobs:
       - name: Assembler le tarball hors ligne (DPO-P-002-5)
         run: |
           mkdir -p dist/ardoise
-          cp ardoise ardoise.sig ardoise.pub ardoise.spdx.json dist/ardoise/
+          cp ardoise ardoise.sig ardoise.pub ardoise.spdx.json ardoise.1 dist/ardoise/
           # Générer verifier.sh avec l'empreinte SHA-256 gravée
           HASH=$(sha256sum ardoise | cut -d' ' -f1)
           cat > dist/ardoise/verifier.sh << VERIFIER
@@ -259,6 +264,7 @@ jobs:
           files: |
             ardoise-v${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz
             ardoise.spdx.json
+            ardoise.1
           body: |
             ## Ardoise v${{ steps.version.outputs.VERSION }}
 
@@ -282,3 +288,9 @@ jobs:
 
             ### Provenance SLSA
             La provenance signée est attachée au binaire et à l'image conteneur.
+
+            ### Manuel
+            ```
+            ardoise man        # affiche le manuel complet
+            man ./ardoise.1    # ou via la page troff livrée
+            ```

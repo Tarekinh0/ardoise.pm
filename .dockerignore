@@ -48,6 +48,7 @@ ardoise
 
 # Documentation (pas utile dans l'image)
 docs/
+!docs/man.md
 README.md
 report.md
 

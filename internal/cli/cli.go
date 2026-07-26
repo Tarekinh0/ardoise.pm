@@ -82,6 +82,7 @@ var commandes = map[string]commande{
 	"cle":     cmdCle,
 	"serve":   cmdServe,
 	"version": cmdVersion,
+	"man":     cmdMan,
 }
 
 const usageGenerale = `usage :
@@ -93,6 +94,7 @@ const usageGenerale = `usage :
   ardoise cle --generer [OPTIONS]
   ardoise serve --config FICHIER [OPTIONS]
   ardoise version
+  ardoise man
 
 Sous-commandes :
   push     dépose un contenu et affiche son identifiant (implicite quand
@@ -105,6 +107,7 @@ Sous-commandes :
   serve    démarre une instance
   version  affiche la version, l'empreinte du binaire et l'identifiant
            de compilation
+  man      affiche le manuel complet au format Markdown
 
 « ardoise <commande> --aide » détaille chaque commande.`
 
