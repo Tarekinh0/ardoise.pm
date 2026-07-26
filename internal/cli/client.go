@@ -12,14 +12,8 @@ import (
 
 	"ardoise.pm/internal/client"
 	"ardoise.pm/internal/config"
-	"ardoise.pm/internal/server"
+	"ardoise.pm/internal/tlsconfig"
 )
-
-// messagePKCS11 : le support matériel exige un module PKCS#11 natif,
-// incompatible avec la contrainte de binaire statique sans cgo du produit.
-// L'option est acceptée pour que le manuel reste exact, mais refusée avec
-// une explication plutôt qu'ignorée en silence.
-const messagePKCS11 = "PKCS#11 non pris en charge dans cette version (nécessite cgo, incompatible binaire statique — voir dossier de risques)"
 
 // configTLSClient construit la configuration TLS du client : AC dédiée
 // (--ac, ARDOISE_AC, configuration client) ou magasin système, certificat
@@ -38,7 +32,7 @@ func configTLSClient(cheminAC, cheminCertificat, cheminCle string) (*tls.Config,
 		// TLS 1.2 minimum : une instance en TLS-3 reste joignable ; les
 		// suites 1.2 sont restreintes à la liste ANSSI.
 		MinVersion:   tls.VersionTLS12,
-		CipherSuites: server.SuitesTLS12(),
+		CipherSuites: tlsconfig.SuitesTLS12(),
 	}
 	if cheminAC != "" {
 		pemAC, err := os.ReadFile(cheminAC)
@@ -94,7 +88,7 @@ func resoudreConfigTLSClient(ctx *Contexte, com *optionsCommunes, auth *optionsA
 	}
 
 	if premierNonVide(auth.pkcs11, configClient.PKCS11) != "" {
-		return nil, nil, "", Erreurf(CodeErreur, "%s", messagePKCS11)
+		return nil, nil, "", Erreurf(CodeErreur, "%s", tlsconfig.MessagePKCS11)
 	}
 
 	ac := premierNonVide(auth.ac, configClient.AC)

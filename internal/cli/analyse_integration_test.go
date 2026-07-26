@@ -59,9 +59,9 @@ func TestIntegrationAnalyseAllerRetour(t *testing.T) {
 		t.Fatalf("identifiant CHIF-4 sans fragment de clé : %q", identifiant)
 	}
 	// L'avertissement du manuel précède l'envoi (docs/man.md, SÉCURITÉ).
-	if !strings.Contains(r.stderr, "mode analysé — le serveur accède au contenu en clair pendant l'analyse") {
-		t.Errorf("avertissement du mode analysé absent :\n%s", r.stderr)
-	}
+	// C3 : écrit directement sur os.Stderr (toujours visible, même sous -q)
+	// — non capturable par r.stderr, vérifié par le test de l'option
+	// --silencieux dans TestIntegrationAnalyseSilencieux.
 	// La clé ne fuit jamais sur la sortie d'erreur.
 	if strings.Contains(r.stderr, strings.SplitN(identifiant, "#", 2)[1]) {
 		t.Error("le fragment de clé apparaît sur la sortie d'erreur")
@@ -71,7 +71,7 @@ func TestIntegrationAnalyseAllerRetour(t *testing.T) {
 		t.Fatalf("contenu soumis à l'analyse = %q, attendu %q", maquette.DernierCorps(), contenu)
 	}
 
-	lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(env))
+	lecture := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env))
 	if lecture.code != CodeOK {
 		t.Fatalf("get : code = %d (stderr : %s)", lecture.code, lecture.stderr)
 	}
@@ -120,16 +120,16 @@ func TestIntegrationAnalyseInjoignable(t *testing.T) {
 	}
 }
 
-// TestIntegrationAnalyseMotDePasseRefuse : « -p » n'a pas de sens en mode
-// analysé (clé serveur) — refus local, code 3, rien n'est envoyé.
-func TestIntegrationAnalyseMotDePasseRefuse(t *testing.T) {
+// TestIntegrationAnalyseMotsPourConflict : « --mots » et « --pour » sont
+// exclusifs — refus local, code 2 (CodeUsage), rien n'est envoyé.
+func TestIntegrationAnalyseMotsPourConflict(t *testing.T) {
 	env, maquette, _ := serveurAnalyseIntegration(t, icap.MaquetteFavorable)
-	r := pousser(t, env, "contenu", []string{"-p"}, avecMotDePasse("inutile"))
-	if r.code != CodeRefusPolitique {
-		t.Fatalf("code = %d, attendu %d (stderr : %s)", r.code, CodeRefusPolitique, r.stderr)
+	r := pousser(t, env, "contenu", []string{"--mots", "--pour", "alice.durand"})
+	if r.code != CodeUsage {
+		t.Fatalf("code = %d, attendu %d (stderr : %s)", r.code, CodeUsage, r.stderr)
 	}
-	if !strings.Contains(r.stderr, "mot-de-passe") {
-		t.Errorf("refus sans mention de l'option :\n%s", r.stderr)
+	if !strings.Contains(r.stderr, "exclusifs") {
+		t.Errorf("refus sans mention du conflit :\n%s", r.stderr)
 	}
 	if len(maquette.DernierCorps()) != 0 {
 		t.Error("rien ne doit partir vers l'analyse après un refus local")
@@ -160,7 +160,7 @@ func TestIntegrationMarquageComplement(t *testing.T) {
 	contenu := "extrait marqué\n"
 	identifiant := identifiantDe(t, pousser(t, env, contenu, []string{"--marquage", "incident 4712"}))
 
-	lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(env))
+	lecture := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env))
 	attendu := "=== DIFFUSION RESTREINTE — incident 4712 ===\n" + contenu
 	if lecture.code != CodeOK || lecture.stdout != attendu {
 		t.Fatalf("contenu rendu = %q, attendu %q (stderr : %s)", lecture.stdout, attendu, lecture.stderr)
@@ -174,7 +174,7 @@ func TestIntegrationMarquageJSON(t *testing.T) {
 	contenu := "contenu pour script\n"
 	identifiant := identifiantDe(t, pousser(t, env, contenu, []string{"--marquage", "incident 4712"}))
 
-	lecture := executer(t, []string{"get", "--json", identifiant}, avecEnvironnement(env))
+	lecture := executer(t, []string{"get", "--argument", "--json", identifiant}, avecEnvironnement(env))
 	if lecture.code != CodeOK {
 		t.Fatalf("get --json : code = %d (stderr : %s)", lecture.code, lecture.stderr)
 	}
@@ -211,7 +211,7 @@ func TestIntegrationSansMarquage(t *testing.T) {
 	contenu := "contenu sans marquage\n"
 	identifiant := identifiantDe(t, pousser(t, env, contenu, []string{"--marquage", "complément ignoré"}))
 
-	lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(env))
+	lecture := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env))
 	if lecture.code != CodeOK || lecture.stdout != contenu {
 		t.Fatalf("contenu rendu = %q, attendu %q (MARQ-2 : rien en tête)", lecture.stdout, contenu)
 	}

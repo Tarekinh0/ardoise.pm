@@ -202,7 +202,7 @@ func TestIntegrationCacheBorne(t *testing.T) {
 
 	// Première lecture : consomme l'ardoise (lecture unique) et alimente le
 	// cache local.
-	lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(env))
+	lecture := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env))
 	if lecture.code != CodeOK {
 		t.Fatalf("get : code = %d (stderr : %s)", lecture.code, lecture.stderr)
 	}
@@ -213,14 +213,14 @@ func TestIntegrationCacheBorne(t *testing.T) {
 
 	// « --cache-seul » : sert sans contacter l'instance (l'ardoise y est
 	// d'ailleurs déjà détruite), déchiffrement et marquage identiques.
-	seul := executer(t, []string{"get", "--cache-seul", identifiant}, avecEnvironnement(env))
+	seul := executer(t, []string{"get", "--argument", "--cache-seul", identifiant}, avecEnvironnement(env))
 	if seul.code != CodeOK || seul.stdout != enTeteMarquageIntegration+contenu {
 		t.Fatalf("--cache-seul : code = %d, stdout = %q (stderr : %s)", seul.code, seul.stdout, seul.stderr)
 	}
 
 	// Lecture par défaut après consommation : l'instance répond code 5, le
 	// cache local prend le relais (ADR-013 : la commande se rejoue).
-	relecture := executer(t, []string{"get", identifiant}, avecEnvironnement(env))
+	relecture := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env))
 	if relecture.code != CodeOK || relecture.stdout != enTeteMarquageIntegration+contenu {
 		t.Fatalf("relecture via cache : code = %d, stdout = %q (stderr : %s)", relecture.code, relecture.stdout, relecture.stderr)
 	}
@@ -229,14 +229,14 @@ func TestIntegrationCacheBorne(t *testing.T) {
 	}
 
 	// « --sans-cache » : ni lecture ni repli — l'instance répond code 5.
-	sans := executer(t, []string{"get", "--sans-cache", identifiant}, avecEnvironnement(env))
+	sans := executer(t, []string{"get", "--argument", "--sans-cache", identifiant}, avecEnvironnement(env))
 	if sans.code != CodeIntrouvable {
 		t.Fatalf("--sans-cache après consommation : code = %d, attendu %d", sans.code, CodeIntrouvable)
 	}
 
 	// L'empreinte vérifiée s'applique aussi depuis le cache.
 	empreinteFausse := strings.Repeat("0", 64)
-	mauvaise := executer(t, []string{"get", "--cache-seul", "--verifier-empreinte", empreinteFausse, identifiant}, avecEnvironnement(env))
+	mauvaise := executer(t, []string{"get", "--argument", "--cache-seul", "--verifier-empreinte", empreinteFausse, identifiant}, avecEnvironnement(env))
 	if mauvaise.code != CodeErreur || !strings.Contains(mauvaise.stderr, "empreinte incohérente") {
 		t.Fatalf("--verifier-empreinte depuis le cache : code = %d, stderr = %q", mauvaise.code, mauvaise.stderr)
 	}
@@ -251,7 +251,7 @@ func TestIntegrationCacheInterditEtSansCache(t *testing.T) {
 	repertoire := avecCache(t, env)
 
 	identifiant := identifiantDe(t, pousser(t, env, "jamais en cache\n", nil))
-	if r := executer(t, []string{"get", identifiant}, avecEnvironnement(env)); r.code != CodeOK {
+	if r := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env)); r.code != CodeOK {
 		t.Fatalf("get : code = %d", r.code)
 	}
 	if _, err := os.Stat(repertoire); !os.IsNotExist(err) {
@@ -266,7 +266,7 @@ func TestIntegrationCacheInterditEtSansCache(t *testing.T) {
 	envBorne := serveurIntegration(t, instBorne, magasinMemoire(t))
 	repertoireBorne := avecCache(t, envBorne)
 	identifiant = identifiantDe(t, pousser(t, envBorne, "pas celui-ci\n", nil))
-	if r := executer(t, []string{"get", "--sans-cache", identifiant}, avecEnvironnement(envBorne)); r.code != CodeOK {
+	if r := executer(t, []string{"get", "--argument", "--sans-cache", identifiant}, avecEnvironnement(envBorne)); r.code != CodeOK {
 		t.Fatalf("get --sans-cache : code = %d", r.code)
 	}
 	if _, err := os.Stat(repertoireBorne); !os.IsNotExist(err) {
@@ -288,7 +288,7 @@ func TestIntegrationCacheSansMatiereSensible(t *testing.T) {
 
 	identifiant := identifiantDe(t, pousser(t, env, contenu, nil))
 	id, fragment, _ := strings.Cut(identifiant, "#")
-	if r := executer(t, []string{"get", identifiant}, avecEnvironnement(env)); r.code != CodeOK {
+	if r := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env)); r.code != CodeOK {
 		t.Fatalf("get : code = %d", r.code)
 	}
 	entrees, err := os.ReadDir(repertoire)
@@ -321,7 +321,7 @@ func TestIntegrationPurge(t *testing.T) {
 	avecCache(t, env)
 
 	identifiant := identifiantDe(t, pousser(t, env, "à purger plus tard\n", []string{"-t", "2h"}))
-	if r := executer(t, []string{"get", identifiant}, avecEnvironnement(env)); r.code != CodeOK {
+	if r := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env)); r.code != CodeOK {
 		t.Fatalf("get : code = %d", r.code)
 	}
 	// L'entrée n'est pas expirée : la purge par défaut la conserve.
@@ -339,7 +339,7 @@ func TestIntegrationPurge(t *testing.T) {
 		t.Errorf("purge --tout : %q (%v)", r.stdout, err)
 	}
 	// Le cache est vide : « --cache-seul » répond code 5.
-	if r := executer(t, []string{"get", "--cache-seul", identifiant}, avecEnvironnement(env)); r.code != CodeIntrouvable {
+	if r := executer(t, []string{"get", "--argument", "--cache-seul", identifiant}, avecEnvironnement(env)); r.code != CodeIntrouvable {
 		t.Errorf("--cache-seul après purge : code = %d", r.code)
 	}
 }
@@ -436,7 +436,7 @@ func TestIntegrationPourEtMultiDestinataires(t *testing.T) {
 	for _, identite := range []string{"alice.durand", "bob.petit"} {
 		env := envs[identite]
 		env["ARDOISE_CLE_PRIVEE"] = filepath.Join(repertoireCles, identite+".cle")
-		lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(env))
+		lecture := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env))
 		if lecture.code != CodeOK || lecture.stdout != enTeteMarquageIntegration+contenu {
 			t.Fatalf("%s : code = %d, stdout = %q (stderr : %s)", identite, lecture.code, lecture.stdout, lecture.stderr)
 		}
@@ -445,7 +445,7 @@ func TestIntegrationPourEtMultiDestinataires(t *testing.T) {
 	// Mallory, authentifiée mais non désignée : l'instance répond comme pour
 	// une ardoise inexistante — code 5, avant même toute cryptographie.
 	envMallory := envs["mallory.evein"]
-	refus := executer(t, []string{"get", identifiant}, avecEnvironnement(envMallory))
+	refus := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(envMallory))
 	if refus.code != CodeIntrouvable {
 		t.Fatalf("mallory : code = %d, attendu %d (stderr : %s)", refus.code, CodeIntrouvable, refus.stderr)
 	}
@@ -481,7 +481,7 @@ func TestIntegrationPourRepliSansCle(t *testing.T) {
 		t.Errorf("le repli doit être signalé :\n%s", depot.stderr)
 	}
 	// La désignation serveur demeure : bob (désigné) lit, avec le fragment.
-	if lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(envs["bob.petit"])); lecture.code != CodeOK {
+	if lecture := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(envs["bob.petit"])); lecture.code != CodeOK {
 		t.Fatalf("bob : code = %d (stderr : %s)", lecture.code, lecture.stderr)
 	}
 
@@ -508,6 +508,32 @@ func TestIntegrationPourRefuseSousDeclaratif(t *testing.T) {
 	}
 	if !strings.Contains(r.stderr, "falsifiable") {
 		t.Errorf("le refus doit être motivé :\n%s", r.stderr)
+	}
+}
+
+// TestIntegrationPourSansFichierGroupes vérifie que --pour ne panique pas
+// lorsque auth.groupes n'est pas configuré (deps.Groupes nil). Dans ce cas,
+// les ardoises désignées « --pour » restent au porteur pour les identités
+// individuelles (la vérification se fait sans table de groupes), mais un
+// groupe (@…) reste irrésoluble : l'ardoise est illisible.
+// PR-007 : couverture du chemin nil.Groupes.
+func TestIntegrationPourSansFichierGroupes(t *testing.T) {
+	inst := instanceIntegration(t, func(m map[string]map[string]any) {
+		m["analyse"] = map[string]any{"secrets_client": "desactive"}
+	})
+	envs := serveurMultiIdentites(t, inst, magasinMemoire(t), []string{"alice.durand", "bob.petit"})
+	contenu := "note pour alice (sans fichier groupes)\n"
+
+	// Dépôt par alice avec --pour alice.durand : le serveur n'a pas de
+	// table auth.groupes → deps.Groupes == nil. Le dépôt ne panique pas.
+	envAlice := envs["alice.durand"]
+	r := pousser(t, envAlice, contenu, []string{"--pour", "alice.durand"})
+	identifiant := identifiantDe(t, r)
+
+	// Vérifier que la récupération ne panique pas non plus.
+	lecture := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(envAlice))
+	if lecture.code != CodeOK || lecture.stdout != enTeteMarquageIntegration+contenu {
+		t.Fatalf("alice : code = %d, stdout = %q (stderr : %s)", lecture.code, lecture.stdout, lecture.stderr)
 	}
 }
 

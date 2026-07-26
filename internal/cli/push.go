@@ -28,8 +28,7 @@ Commande par défaut lorsque l'entrée standard est redirigée.
 Options de dépôt :
   -t, --duree DURÉE        durée de vie (30m, 2h, 24h), bornée par l'instance
   -b, --lecture-unique     détruit le contenu dès sa première récupération
-  -p, --mot-de-passe       demande un mot de passe au terminal (jamais en
-                           argument de ligne de commande)
+      --mots               chiffre avec 5 mots mnémoniques (CHIF-5, R−)
   -f, --fichier CHEMIN     dépose le contenu du fichier indiqué
   -y, --sans-confirmation  n'interrompt pas le dépôt si un secret est détecté
       --secrets MODE       bloquer | demander (défaut) | signaler
@@ -41,11 +40,10 @@ Options de dépôt :
       --marquage TEXTE     mention libre ajoutée au marquage de l'instance
 ` + aideCommunes + aideAuthClient
 
-// optionsPush regroupe les options de la commande push (PR-102) — extrait du
-// corps de cmdPush pour en réduire la longueur.
+// optionsPush regroupe les options de la commande push.
 type optionsPush struct {
 	duree, fichier, secrets, pour, annuaire, marquage string
-	lectureUnique, motDePasse, sansConfirmation       bool
+	lectureUnique, mots, sansConfirmation             bool
 }
 
 // enregistrer déclare les drapeaux de push sur le jeu fourni.
@@ -54,8 +52,7 @@ func (o *optionsPush) enregistrer(fs *flag.FlagSet) {
 	fs.StringVar(&o.duree, "t", "", "")
 	fs.BoolVar(&o.lectureUnique, "lecture-unique", false, "")
 	fs.BoolVar(&o.lectureUnique, "b", false, "")
-	fs.BoolVar(&o.motDePasse, "mot-de-passe", false, "")
-	fs.BoolVar(&o.motDePasse, "p", false, "")
+	fs.BoolVar(&o.mots, "mots", false, "")
 	fs.StringVar(&o.fichier, "fichier", "", "")
 	fs.StringVar(&o.fichier, "f", "", "")
 	fs.BoolVar(&o.sansConfirmation, "sans-confirmation", false, "")
@@ -137,10 +134,6 @@ func cmdPush(ctx *Contexte, args []string) error {
 		return err
 	}
 	defer crypto.Effacer(clair)
-	// PR-001 : la borne dure PlafondClientTaille s'applique même quand
-	// l'instance ne déclare pas de limite (TailleMaxOctets == 0). Le +1
-	// dans lireContenu garantit la détection de dépassement : un contenu
-	// qui atteint PlafondClientTaille+1 a nécessairement débordé.
 	if int64(len(clair)) > PlafondClientTaille {
 		return Erreurf(CodeTailleDepassee,
 			"contenu de %s refusé : la taille maximale autorisée est %s",
@@ -156,34 +149,34 @@ func cmdPush(ctx *Contexte, args []string) error {
 		return err
 	}
 
-	var saisie []byte
-	if neg.avecMotDePasse {
-		if ctx.LireMotDePasse == nil {
-			return Erreurf(CodeErreur, "aucun terminal disponible pour saisir le mot de passe exigé par la politique de l'instance")
-		}
-		saisie, err = ctx.LireMotDePasse("Mot de passe : ")
+	var chiffre []byte
+	var cle []byte
+	var mots []string
+	var idSuggere string
+
+	if opts.mots {
+		// CHIF-5 : chiffrement par mots mnémoniques
+		chiffre, cle, mots, idSuggere, err = preparerChiffrementMots(clair)
 		if err != nil {
-			return Erreurf(CodeErreur, "%v", err)
+			return Erreurf(CodeErreur, "chiffrement par mots : %v", err)
 		}
+		defer crypto.Effacer(cle)
+	} else {
+		chiffre, cle, err = preparerChiffrement(neg.modeAnalyse, neg.chiffrementMD, neg.schemaID, clair, neg.destinatairesMD)
+		if err != nil {
+			return err
+		}
+		defer crypto.Effacer(cle)
 	}
-	defer crypto.Effacer(saisie)
 
-	chiffre, cle, err := preparerChiffrement(neg.modeAnalyse, neg.chiffrementMD, neg.schemaID, clair, saisie, neg.destinatairesMD)
-	if err != nil {
-		return err
-	}
-	defer crypto.Effacer(cle)
-
-	return envoyerEtVerifier(cl, ctx, chiffre, cle, clair, neg.modeAnalyse, neg.chiffrementMD, neg.dureeEffective, neg.lectureUniqueEffective, pourListe, opts.marquage, &com)
+	return envoyerEtVerifier(cl, ctx, chiffre, cle, clair, neg.modeAnalyse, neg.chiffrementMD, neg.dureeEffective, neg.lectureUniqueEffective, pourListe, opts.marquage, opts.mots, mots, idSuggere, &com)
 }
 
 // negociationPush rassemble les paramètres issus de la négociation avec la
-// politique de l'instance (PR-102). Chaque champ a été validé — schéma,
-// durée, lecture unique, mode — et les décisions sont définitives.
+// politique de l'instance.
 type negociationPush struct {
 	politique              *config.Politique
 	modeAnalyse            bool
-	avecMotDePasse         bool
 	dureeEffective         string
 	lectureUniqueEffective bool
 	chiffrementMD          bool
@@ -192,8 +185,7 @@ type negociationPush struct {
 }
 
 // resoudrePolitiquePush interroge l'instance, résout les options du dépôt
-// contre la politique publiée et affiche le résumé sur la sortie standard
-// (mode, marquage, durée). Extraite de cmdPush (PR-102).
+// contre la politique publiée et affiche le résumé sur la sortie standard.
 func resoudrePolitiquePush(ctx *Contexte, s *sortie, cl *client.Client, cfgClient *config.Client, opts optionsPush, dureeDemandee time.Duration, pourListe []string) (*negociationPush, error) {
 	politique, err := cl.Politique()
 	if err != nil {
@@ -204,6 +196,11 @@ func resoudrePolitiquePush(ctx *Contexte, s *sortie, cl *client.Client, cfgClien
 	if len(pourListe) > 0 && !politique.DestinatairesAdmis {
 		return nil, Erreurf(CodeRefusPolitique,
 			"« --pour » refusé : l'instance retient l'identification déclarative, dont l'identité du lecteur — falsifiable — ne peut fonder aucune restriction de lecture")
+	}
+
+	if len(pourListe) > 0 && opts.mots {
+		return nil, Erreurf(CodeUsage,
+			"« --mots » et « --pour » sont exclusifs : le chiffrement multi-destinataires (CHIF-MD) exige un annuaire de clés publiques, non des mots mnémoniques")
 	}
 
 	var destinatairesMD []crypto.DestinataireMD
@@ -222,26 +219,13 @@ func resoudrePolitiquePush(ctx *Contexte, s *sortie, cl *client.Client, cfgClien
 		}
 	}
 	chiffrementMD := len(destinatairesMD) > 0
-	if chiffrementMD && opts.motDePasse {
-		return nil, Erreurf(CodeRefusPolitique,
-			"« --mot-de-passe » est sans objet avec le chiffrement multi-destinataires : chaque destinataire ouvre avec sa propre clé privée")
-	}
 
 	schema, ok := politique.Option(config.DimContenu)
 	if !ok {
 		return nil, Erreurf(CodeErreur, "politique de l'instance illisible : schéma de protection absent")
 	}
 
-	avecMotDePasse, err := resoudreSchema(modeAnalyse, schema.ID, opts.motDePasse, chiffrementMD)
-	if err != nil {
-		return nil, err
-	}
-
-	// La durée est formatée pour le transport ; le serveur la décode avec
-	// ParseDuree. Ce round-trip FormatDuree → ParseDuree est fragile :
-	// un écart de format entre les deux fonctions casserait silencieusement
-	// l'interprétation. L'envoi en secondes entières serait plus robuste
-	// (PR-104 — correction différée, nécessite une coordination client/serveur).
+	// Durée
 	dureeEffective := politique.DureeDefaut
 	if opts.duree != "" {
 		dureeMax, err := config.ParseDuree(politique.DureeMax)
@@ -267,8 +251,9 @@ func resoudrePolitiquePush(ctx *Contexte, s *sortie, cl *client.Client, cfgClien
 		}
 	}
 
+	// C3 : avertissement mode analysé toujours visible, même sous -q
 	if modeAnalyse {
-		s.infof("Instance : %s (mode analysé — le serveur accède au contenu en clair pendant l'analyse)", politique.Instance)
+		fmt.Fprintf(os.Stderr, "ardoise : Instance : %s (mode analysé — le serveur accède au contenu en clair pendant l'analyse)\n", politique.Instance)
 	} else {
 		s.infof("Instance : %s (mode aveugle, chiffrement local)", politique.Instance)
 	}
@@ -284,7 +269,6 @@ func resoudrePolitiquePush(ctx *Contexte, s *sortie, cl *client.Client, cfgClien
 	return &negociationPush{
 		politique:              politique,
 		modeAnalyse:            modeAnalyse,
-		avecMotDePasse:         avecMotDePasse,
 		dureeEffective:         dureeEffective,
 		lectureUniqueEffective: lectureUniqueEffective,
 		chiffrementMD:          chiffrementMD,
@@ -293,41 +277,9 @@ func resoudrePolitiquePush(ctx *Contexte, s *sortie, cl *client.Client, cfgClien
 	}, nil
 }
 
-// resoudreSchema détermine le schéma de protection effectif et indique si un
-// mot de passe est requis. En mode analysé, seul CHIF-4 est accepté et aucun
-// mot de passe n'est applicable. En mode aveugle, le schéma est imposé par la
-// politique de l'instance (CHIF-1, CHIF-2, CHIF-3 ; CHIF-MD via chiffrement
-// multi-destinataires).
-func resoudreSchema(modeAnalyse bool, schemaID string, motDePasse bool, chiffrementMD bool) (bool, error) {
-	if modeAnalyse {
-		if schemaID != "CHIF-4" {
-			return false, Erreurf(CodeErreur, "schéma de protection « %s » non pris en charge par cette version", schemaID)
-		}
-		if motDePasse {
-			return false, Erreurf(CodeRefusPolitique,
-				"« --mot-de-passe » refusé : en mode analysé la clé est générée par le serveur (CHIF-4), aucun mot de passe ne s'y applique")
-		}
-		return false, nil
-	}
-	switch schemaID {
-	case "CHIF-2":
-		if motDePasse {
-			return false, Erreurf(CodeRefusPolitique,
-				"« --mot-de-passe » refusé : la politique de l'instance retient la clé aléatoire seule (CHIF-2), sans mot de passe")
-		}
-		return false, nil
-	case "CHIF-1", "CHIF-3":
-		return !chiffrementMD, nil
-	default:
-		return false, Erreurf(CodeErreur, "schéma de protection « %s » non pris en charge par cette version", schemaID)
-	}
-}
-
 // preparerChiffrement chiffre le contenu selon le schéma de protection.
-// En mode analysé, le contenu est envoyé en clair (le chiffrement est
-// l'affaire du serveur, CHIF-4). En mode aveugle, le chiffrement est
-// effectué localement — CHIF-1, CHIF-2, CHIF-3 ou CHIF-MD.
-func preparerChiffrement(modeAnalyse bool, chiffrementMD bool, schemaID string, clair []byte, saisie []byte, destinatairesMD []crypto.DestinataireMD) (chiffre []byte, cle []byte, err error) {
+// CHIF-5 (--mots) est traité en amont dans cmdPush.
+func preparerChiffrement(modeAnalyse bool, chiffrementMD bool, schemaID string, clair []byte, destinatairesMD []crypto.DestinataireMD) (chiffre []byte, cle []byte, err error) {
 	if modeAnalyse {
 		return nil, nil, nil
 	}
@@ -338,32 +290,47 @@ func preparerChiffrement(modeAnalyse bool, chiffrementMD bool, schemaID string, 
 	switch schemaID {
 	case "CHIF-2":
 		return crypto.ChiffrerCle(clair)
-	case "CHIF-3":
-		chiffre, err = crypto.ChiffrerMotDePasse(clair, saisie)
-		return chiffre, nil, err
-	case "CHIF-1":
-		return crypto.ChiffrerCleMotDePasse(clair, saisie)
 	default:
 		return nil, nil, Erreurf(CodeErreur, "schéma de protection « %s » non pris en charge par cette version", schemaID)
 	}
 }
 
 // envoyerEtVerifier dépose le contenu, vérifie la réponse de l'instance et
-// formate l'identifiant sur la sortie standard. En mode aveugle, l'empreinte
-// retournée est comparée à celle du chiffré. En mode analysé, la clé CHIF-4
-// est extraite de la réponse et intégrée à l'identifiant.
-func envoyerEtVerifier(cl *client.Client, ctx *Contexte, chiffre []byte, cle []byte, clair []byte, modeAnalyse bool, chiffrementMD bool, duree string, lectureUnique bool, pourListe []string, marquage string, com *optionsCommunes) error {
+// formate l'identifiant sur la sortie standard.
+func envoyerEtVerifier(cl *client.Client, ctx *Contexte, chiffre []byte, cle []byte, clair []byte, modeAnalyse bool, chiffrementMD bool, duree string, lectureUnique bool, pourListe []string, marquage string, motsActif bool, mots []string, idSuggere string, com *optionsCommunes) error {
 	envoi := clair
 	if !modeAnalyse {
 		envoi = chiffre
 	}
-	reponse, err := cl.Deposer(&client.Depot{
+
+	depot := &client.Depot{
 		Contenu:            envoi,
 		Duree:              duree,
 		LectureUnique:      lectureUnique,
 		Pour:               pourListe,
 		MarquageComplement: marquage,
-	})
+	}
+
+	// CHIF-5 en mode aveugle : le client a dérivé l'ID serveur
+	// depuis les mots et le suggère à l'instance. Sans id_suggere,
+	// le serveur générerait un ID aléatoire (NouvelIDServeur) et
+	// le get --mots ne retrouverait jamais l'ardoise.
+	if motsActif && !modeAnalyse && idSuggere != "" {
+		depot.IDSuggere = idSuggere
+	}
+
+	if motsActif && modeAnalyse && cle != nil {
+		// CHIF-5 en mode analysé : le client envoie la clé et le blob_salt
+		// Extraire blob_salt du chiffré
+		_, blobSalt, _, _, errDec := crypto.Decouper(chiffre)
+		if errDec != nil {
+			return Erreurf(CodeErreur, "extraction du blob_salt : %v", errDec)
+		}
+		depot.CleChiffrement = base64.StdEncoding.EncodeToString(cle)
+		depot.BlobSalt = base64.StdEncoding.EncodeToString(blobSalt)
+	}
+
+	reponse, err := cl.Deposer(depot)
 	if err != nil {
 		return traduireErreurClient(err)
 	}
@@ -372,17 +339,35 @@ func envoyerEtVerifier(cl *client.Client, ctx *Contexte, chiffre []byte, cle []b
 	}
 
 	if modeAnalyse {
-		cleServeur, errCle := base64.RawURLEncoding.DecodeString(reponse.Cle)
-		if errCle != nil || len(cleServeur) != crypto.TailleCle {
-			crypto.Effacer(cleServeur)
-			return Erreurf(CodeErreur, "clé inattendue retournée par l'instance")
+		if motsActif {
+			// CHIF-5 analysé : le serveur a chiffré, pas de clé retournée
+			_ = reponse.Cle // ignorée
+		} else {
+			cleServeur, errCle := base64.RawURLEncoding.DecodeString(reponse.Cle)
+			if errCle != nil || len(cleServeur) != crypto.TailleCle {
+				crypto.Effacer(cleServeur)
+				return Erreurf(CodeErreur, "clé inattendue retournée par l'instance")
+			}
+			cle = cleServeur
+			defer crypto.Effacer(cle)
 		}
-		cle = cleServeur
-		defer crypto.Effacer(cle)
 	} else {
 		if !crypto.EmpreintesEgales(reponse.Empreinte, crypto.Empreinte(chiffre)) {
 			return Erreurf(CodeErreur, "l'empreinte annoncée par l'instance ne correspond pas au contenu déposé")
 		}
+	}
+
+	if motsActif {
+		afficherMots(ctx.Stdout, mots, ctx.StdoutTTY)
+		if com.json {
+			return ecrireJSONSortie(ctx.Stdout, struct {
+				Mots      string `json:"mots"`
+				ID        string `json:"id"`
+				Empreinte string `json:"empreinte"`
+				Echeance  string `json:"echeance"`
+			}{strings.Join(mots, "-"), reponse.ID, reponse.Empreinte, reponse.Echeance})
+		}
+		return nil
 	}
 
 	identifiant := crypto.FormatIdentifiant(reponse.ID, cle)
@@ -402,16 +387,10 @@ func envoyerEtVerifier(cl *client.Client, ctx *Contexte, chiffre []byte, cle []b
 }
 
 // PlafondClientTaille est la borne mémoire dure côté client lorsqu'aucune
-// borne configurée n'est fournie par l'instance (TailleMaxOctets == 0).
-// 64 Mio : le service n'est pas un serveur de fichiers (ES-10) et aucun
-// contenu légitime de pastebin ne dépasse ce seuil (SRQ-B001).
+// borne configurée n'est fournie par l'instance.
 const PlafondClientTaille = 64 << 20 // 64 Mio
 
-// lireContenu lit le contenu à déposer : le fichier indiqué, sinon l'entrée
-// standard. La lecture est bornée par tailleMaxOctets (limite configurée de
-// l'instance). Lorsque tailleMaxOctets est nul (pas de limite configurée),
-// un plafond dur de 64 Mio est appliqué. Le +1 permet de détecter un
-// dépassement sans tronquer silencieusement (DPO-B-001).
+// lireContenu lit le contenu à déposer.
 func lireContenu(ctx *Contexte, fichier string, tailleMaxOctets int64) ([]byte, error) {
 	limite := tailleMaxOctets + 1
 	if tailleMaxOctets <= 0 {

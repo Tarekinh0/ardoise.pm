@@ -158,7 +158,7 @@ func TestIntegrationMTLS(t *testing.T) {
 		"ARDOISE_CERTIFICAT": cheminCertificat,
 		"ARDOISE_CLE":        cheminCle,
 	}
-	lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(envCertificat))
+	lecture := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(envCertificat))
 	if lecture.code != CodeOK || lecture.stdout != "secret pour la zone" {
 		t.Fatalf("get mTLS : code = %d, stdout = %q (stderr : %s)", lecture.code, lecture.stdout, lecture.stderr)
 	}
@@ -282,7 +282,7 @@ func TestIntegrationDeclaratif(t *testing.T) {
 	env := serveurIntegration(t, inst, magasinMemoire(t))
 	r := pousser(t, env, "identité déclarée", nil)
 	identifiant := identifiantDe(t, r)
-	lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(env))
+	lecture := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env))
 	if lecture.code != CodeOK || lecture.stdout != enTeteMarquageIntegration+"identité déclarée" {
 		t.Fatalf("get déclaratif : code = %d, stdout = %q (stderr : %s)", lecture.code, lecture.stdout, lecture.stderr)
 	}

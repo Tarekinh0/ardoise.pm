@@ -75,8 +75,17 @@ func cmdCle(ctx *Contexte, args []string) error {
 	if err != nil {
 		return Erreurf(CodeErreur, "écriture de la clé privée : %v (une clé existante n'est jamais écrasée)", err)
 	}
-	texte := base64.StdEncoding.EncodeToString(privee)
-	_, err = fmt.Fprintln(f, texte)
+	// A.3-2 : La clé privée est écrite directement dans le fichier via
+	// un encodeur base64 en continu, sans passer par une chaîne Go
+	// intermédiaire. Les chaînes Go sont immuables : une conversion en
+	// string par EncodeToString survivrait au ramasse-miettes, même après
+	// l'appel à crypto.Effacer. L'écriture directe évite cette copie.
+	encodeur := base64.NewEncoder(base64.StdEncoding, f)
+	_, err = encodeur.Write(privee)
+	if errFermetureE := encodeur.Close(); err == nil {
+		err = errFermetureE
+	}
+	_, err = fmt.Fprintln(f)
 	if errFermeture := f.Close(); err == nil {
 		err = errFermeture
 	}
@@ -85,15 +94,15 @@ func cmdCle(ctx *Contexte, args []string) error {
 		return Erreurf(CodeErreur, "écriture de la clé privée : %v", err)
 	}
 
-	cléPublique := base64.StdEncoding.EncodeToString(publique)
+	clePublique := base64.StdEncoding.EncodeToString(publique)
 	if com.json {
 		return ecrireJSONSortie(ctx.Stdout, struct {
 			ClePublique string `json:"cle_publique"`
 			Fichier     string `json:"fichier"`
-		}{cléPublique, fichier})
+		}{clePublique, fichier})
 	}
 	s := nouvelleSortie(ctx, &com)
 	s.infof("Clé privée écrite dans %s (0600). La clé publique ci-dessous rejoint l'annuaire de l'entité :", fichier)
-	fmt.Fprintln(ctx.Stdout, cléPublique)
+	fmt.Fprintln(ctx.Stdout, clePublique)
 	return nil
 }

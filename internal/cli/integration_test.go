@@ -164,7 +164,7 @@ func TestIntegrationCHIF2(t *testing.T) {
 		t.Error("l'identifiant complet apparaît sur la sortie d'erreur")
 	}
 
-	lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(env))
+	lecture := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env))
 	if lecture.code != CodeOK {
 		t.Fatalf("get : code = %d (stderr : %s)", lecture.code, lecture.stderr)
 	}
@@ -175,53 +175,23 @@ func TestIntegrationCHIF2(t *testing.T) {
 	}
 }
 
-func TestIntegrationCHIF3(t *testing.T) {
-	inst := instanceIntegration(t, func(m map[string]map[string]any) {
-		m["contenu"]["chiffrement"] = "motdepasse"
-	})
+func TestIntegrationCHIF2SansOptions(t *testing.T) {
+	inst := instanceIntegration(t, nil)
 	env := serveurIntegration(t, inst, magasinMemoire(t))
-	contenu := "protégé par mot de passe seul"
+	contenu := "protégé par clé aléatoire"
 
-	r := pousser(t, env, contenu, nil, avecMotDePasse("grand-large"))
-	identifiant := identifiantDe(t, r)
-	if strings.Contains(identifiant, "#") {
-		t.Fatalf("identifiant CHIF-3 avec fragment : %q (la clé dérive du mot de passe)", identifiant)
-	}
-
-	lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(env), avecMotDePasse("grand-large"))
-	if lecture.code != CodeOK || lecture.stdout != enTeteMarquageIntegration+contenu {
-		t.Fatalf("get : code = %d, stdout = %q (stderr : %s)", lecture.code, lecture.stdout, lecture.stderr)
-	}
-
-	mauvais := executer(t, []string{"get", identifiant}, avecEnvironnement(env), avecMotDePasse("erroné"))
-	if mauvais.code != CodeErreur || !strings.Contains(mauvais.stderr, "déchiffrement impossible") {
-		t.Fatalf("mauvais mot de passe : code = %d, stderr = %q", mauvais.code, mauvais.stderr)
-	}
-	if mauvais.stdout != "" {
-		t.Error("aucun contenu ne doit sortir après un échec de déchiffrement")
-	}
-}
-
-func TestIntegrationCHIF1(t *testing.T) {
-	inst := instanceIntegration(t, func(m map[string]map[string]any) {
-		m["contenu"]["chiffrement"] = "cle+motdepasse"
-	})
-	env := serveurIntegration(t, inst, magasinMemoire(t))
-	contenu := "deux secrets requis pour ouvrir"
-
-	// Le mot de passe est exigé par la politique, même sans « -p ».
-	r := pousser(t, env, contenu, nil, avecMotDePasse("cap-horn"))
+	r := pousser(t, env, contenu, nil)
 	identifiant := identifiantDe(t, r)
 	if !strings.Contains(identifiant, "#") {
-		t.Fatalf("identifiant CHIF-1 sans fragment : %q", identifiant)
+		t.Fatalf("identifiant CHIF-2 sans fragment : %q", identifiant)
 	}
 
-	lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(env), avecMotDePasse("cap-horn"))
+	lecture := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env))
 	if lecture.code != CodeOK || lecture.stdout != enTeteMarquageIntegration+contenu {
 		t.Fatalf("get : code = %d, stdout = %q (stderr : %s)", lecture.code, lecture.stdout, lecture.stderr)
 	}
 
-	// Mauvais fragment : identifiant altéré, bon mot de passe.
+	// Mauvais fragment : identifiant altéré.
 	id, fragment, _ := strings.Cut(identifiant, "#")
 	altere := []byte(fragment)
 	if altere[0] == 'A' {
@@ -229,17 +199,54 @@ func TestIntegrationCHIF1(t *testing.T) {
 	} else {
 		altere[0] = 'A'
 	}
-	mauvaisFragment := executer(t, []string{"get", id + "#" + string(altere)},
-		avecEnvironnement(env), avecMotDePasse("cap-horn"))
+	mauvais := executer(t, []string{"get", "--argument", id + "#" + string(altere)}, avecEnvironnement(env))
+	if mauvais.code != CodeErreur || !strings.Contains(mauvais.stderr, "déchiffrement impossible") {
+		t.Fatalf("mauvais fragment : code = %d, stderr = %q", mauvais.code, mauvais.stderr)
+	}
+	if mauvais.stdout != "" {
+		t.Error("aucun contenu ne doit sortir après un échec de déchiffrement")
+	}
+}
+
+// TestIntegrationCHIF2Rejeu vérifie que l'altération du fragment
+// ou son absence sont correctement détectées par le client.
+func TestIntegrationCHIF2Rejeu(t *testing.T) {
+	env := serveurIntegration(t, instanceIntegration(t, nil), magasinMemoire(t))
+	contenu := "aller-retour CHIF-2 avec vérification"
+
+	r := pousser(t, env, contenu, []string{"-t", "30m"})
+	identifiant := identifiantDe(t, r)
+	if !strings.Contains(identifiant, "#") {
+		t.Fatalf("identifiant sans fragment : %q", identifiant)
+	}
+
+	lecture := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env))
+	if lecture.code != CodeOK || lecture.stdout != enTeteMarquageIntegration+contenu {
+		t.Fatalf("get : code = %d, stdout = %q (stderr : %s)", lecture.code, lecture.stdout, lecture.stderr)
+	}
+
+	// Mauvais fragment : identifiant altéré.
+	id, fragment, _ := strings.Cut(identifiant, "#")
+	altere := []byte(fragment)
+	if altere[0] == 'A' {
+		altere[0] = 'B'
+	} else {
+		altere[0] = 'A'
+	}
+	mauvaisFragment := executer(t, []string{"get", "--argument", id + "#" + string(altere)},
+		avecEnvironnement(env))
 	if mauvaisFragment.code != CodeErreur || !strings.Contains(mauvaisFragment.stderr, "déchiffrement impossible") {
 		t.Fatalf("mauvais fragment : code = %d, stderr = %q", mauvaisFragment.code, mauvaisFragment.stderr)
 	}
 
-	// Bon fragment, mauvais mot de passe.
-	mauvaisMotDePasse := executer(t, []string{"get", identifiant},
-		avecEnvironnement(env), avecMotDePasse("erroné"))
-	if mauvaisMotDePasse.code != CodeErreur {
-		t.Fatalf("mauvais mot de passe : code = %d", mauvaisMotDePasse.code)
+	// Identifiant sans fragment : le client refuse en amont (CodeUsage).
+	sansFragment := executer(t, []string{"get", "--argument", id},
+		avecEnvironnement(env))
+	if sansFragment.code != CodeUsage {
+		t.Fatalf("sans fragment : code = %d (stderr : %s)", sansFragment.code, sansFragment.stderr)
+	}
+	if !strings.Contains(sansFragment.stderr, "identifiant incomplet") {
+		t.Errorf("message d'usage attendu pour identifiant sans fragment :\n%s", sansFragment.stderr)
 	}
 }
 
@@ -251,11 +258,11 @@ func TestIntegrationLectureUnique(t *testing.T) {
 		t.Errorf("bannière sans mention de la lecture unique :\n%s", r.stderr)
 	}
 
-	premiere := executer(t, []string{"get", identifiant}, avecEnvironnement(env))
+	premiere := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env))
 	if premiere.code != CodeOK || premiere.stdout != enTeteMarquageIntegration+"à lire une seule fois" {
 		t.Fatalf("première lecture : code = %d, stdout = %q", premiere.code, premiere.stdout)
 	}
-	seconde := executer(t, []string{"get", identifiant}, avecEnvironnement(env))
+	seconde := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env))
 	if seconde.code != CodeIntrouvable {
 		t.Fatalf("seconde lecture : code = %d, attendu %d", seconde.code, CodeIntrouvable)
 	}
@@ -269,7 +276,7 @@ func TestIntegrationExpiration(t *testing.T) {
 	identifiant := identifiantDe(t, pousser(t, env, "éphémère", []string{"-t", "1s"}))
 
 	time.Sleep(1100 * time.Millisecond)
-	lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(env))
+	lecture := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env))
 	if lecture.code != CodeIntrouvable {
 		t.Fatalf("lecture après expiration : code = %d, attendu %d (stderr : %s)",
 			lecture.code, CodeIntrouvable, lecture.stderr)
@@ -289,9 +296,6 @@ func TestIntegrationRefusLocaux(t *testing.T) {
 	}
 	if r := pousser(t, env, "x", []string{"-t", "24h"}); r.code != CodeRefusPolitique {
 		t.Errorf("durée au-delà de la borne : code = %d, attendu %d", r.code, CodeRefusPolitique)
-	}
-	if r := pousser(t, env, "x", []string{"-p"}); r.code != CodeRefusPolitique {
-		t.Errorf("-p avec CHIF-2 : code = %d, attendu %d (stderr : %s)", r.code, CodeRefusPolitique, r.stderr)
 	}
 	if r := pousser(t, env, strings.Repeat("a", 2048), nil); r.code != CodeTailleDepassee {
 		t.Errorf("taille dépassée : code = %d, attendu %d", r.code, CodeTailleDepassee)
@@ -321,13 +325,13 @@ func TestIntegrationPushJSONEtVerifierEmpreinte(t *testing.T) {
 	}
 
 	// « --verifier-empreinte » : la bonne empreinte passe, une autre refuse.
-	bonne := executer(t, []string{"get", "--verifier-empreinte", corps.Empreinte, corps.Identifiant}, avecEnvironnement(env))
+	bonne := executer(t, []string{"get", "--argument", "--verifier-empreinte", corps.Empreinte, corps.Identifiant}, avecEnvironnement(env))
 	if bonne.code != CodeOK {
 		t.Fatalf("bonne empreinte refusée : code = %d (stderr : %s)", bonne.code, bonne.stderr)
 	}
 
 	identifiant2 := identifiantDe(t, pousser(t, env, "autre contenu", nil))
-	mauvaise := executer(t, []string{"get", "--verifier-empreinte", corps.Empreinte, identifiant2}, avecEnvironnement(env))
+	mauvaise := executer(t, []string{"get", "--argument", "--verifier-empreinte", corps.Empreinte, identifiant2}, avecEnvironnement(env))
 	if mauvaise.code != CodeErreur || !strings.Contains(mauvaise.stderr, "verifier-empreinte") {
 		t.Fatalf("mauvaise empreinte : code = %d, stderr = %q", mauvaise.code, mauvaise.stderr)
 	}
@@ -341,11 +345,12 @@ func TestIntegrationSortieFichierEtIdentifiantSurStdin(t *testing.T) {
 	identifiant := identifiantDe(t, pousser(t, env, "contenu vers fichier", nil))
 
 	chemin := filepath.Join(t.TempDir(), "restitution.txt")
-	// « get - » : l'identifiant arrive par l'entrée standard.
-	lecture := executer(t, []string{"get", "-o", chemin, "-"},
-		avecEnvironnement(env), avecStdin(identifiant+"\n"))
+	// « get --argument -o » : l'identifiant arrive par --argument, la sortie
+	// est redirigée vers le fichier.
+	lecture := executer(t, []string{"get", "--argument", "-o", chemin, identifiant},
+		avecEnvironnement(env))
 	if lecture.code != CodeOK {
-		t.Fatalf("get - : code = %d (stderr : %s)", lecture.code, lecture.stderr)
+		t.Fatalf("get --argument -o : code = %d (stderr : %s)", lecture.code, lecture.stderr)
 	}
 	if lecture.stdout != "" {
 		t.Error("rien ne doit sortir sur stdout avec --sortie")
@@ -409,7 +414,7 @@ func TestIntegrationMagasinDisque(t *testing.T) {
 	defer second.Fermer()
 	env2 := serveurIntegration(t, inst, second)
 
-	lecture := executer(t, []string{"get", identifiant}, avecEnvironnement(env2))
+	lecture := executer(t, []string{"get", "--argument", identifiant}, avecEnvironnement(env2))
 	if lecture.code != CodeOK || lecture.stdout != enTeteMarquageIntegration+"survivant du redémarrage" {
 		t.Fatalf("lecture après redémarrage : code = %d, stdout = %q (stderr : %s)",
 			lecture.code, lecture.stdout, lecture.stderr)

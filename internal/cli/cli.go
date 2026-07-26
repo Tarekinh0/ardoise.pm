@@ -39,6 +39,11 @@ type Contexte struct {
 	// demander »). Nil lorsqu'aucun terminal n'existe : l'appelant refuse
 	// alors l'opération plutôt que de la poursuivre sans confirmation.
 	Confirmer func(question string) (bool, error)
+
+	// LireMots saisit interactivement n mots mnémoniques sur /dev/tty.
+	// Substituable par les tests ; le matériel saisi reste en []string et
+	// l'appelant efface les dérivés après usage.
+	LireMots func(n int) ([]string, error)
 }
 
 // ContexteSysteme construit le contexte réel du processus.
@@ -58,6 +63,7 @@ func ContexteSysteme(args []string) *Contexte {
 		CheminsConfigClient: chemins,
 		LireMotDePasse:      lireMotDePasseTerminal,
 		Confirmer:           confirmerTerminal,
+		LireMots:            saisirMots,
 	}
 }
 

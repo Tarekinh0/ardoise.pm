@@ -3,8 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"strings"
-	"unicode/utf8"
 )
 
 // sortie centralise l'écriture vers l'utilisateur : messages informatifs sur
@@ -44,14 +42,4 @@ func (s *sortie) gras(texte string) string {
 		return texte
 	}
 	return "\x1b[1m" + texte + "\x1b[0m"
-}
-
-// padDroite complète une chaîne à droite jusqu'à n caractères, comptés en
-// runes pour que les accents ne cassent pas l'alignement des tableaux.
-func padDroite(s string, n int) string {
-	manque := n - utf8.RuneCountInString(s)
-	if manque <= 0 {
-		return s
-	}
-	return s + strings.Repeat(" ", manque)
 }

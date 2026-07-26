@@ -64,9 +64,9 @@ func TestPushImpliciteEntreeRedirigee(t *testing.T) {
 }
 
 func TestArgumentInconnuBasculeVersPush(t *testing.T) {
-	// « ardoise -t 30m -p -f fichier » : push implicite avec options ; les
+	// « ardoise -t 30m -b -f fichier » : push implicite avec options ; les
 	// options passent l'analyse et le dépôt bute sur l'absence d'instance.
-	r := executer(t, []string{"-t", "30m", "-p", "-f", "extrait.log"})
+	r := executer(t, []string{"-t", "30m", "-b", "-f", "extrait.log"})
 	if r.code != CodeUsage || !strings.Contains(r.stderr, "aucune instance indiquée") {
 		t.Fatalf("code = %d, stderr = %q", r.code, r.stderr)
 	}
@@ -145,16 +145,16 @@ func TestGetValidationOptions(t *testing.T) {
 	}{
 		// Un identifiant valide passe l'analyse ; sans instance configurée,
 		// la récupération s'arrête sur « aucune instance indiquée ».
-		{"identifiant valide", []string{"get", identifiant}, CodeUsage, "aucune instance indiquée"},
-		{"empreinte valide", []string{"get", "--verifier-empreinte", empreinte, identifiant}, CodeUsage, "aucune instance indiquée"},
-		{"empreinte prefixee", []string{"get", "--verifier-empreinte", "sha256:" + empreinte, identifiant}, CodeUsage, "aucune instance indiquée"},
-		{"identifiant malformé", []string{"get", "a7f3k9x2m4n6#Zt8mQ4vP1nK"}, CodeUsage, "identifiant invalide"},
+		{"identifiant valide", []string{"get", "--argument", identifiant}, CodeUsage, "aucune instance indiquée"},
+		{"empreinte valide", []string{"get", "--argument", "--verifier-empreinte", empreinte, identifiant}, CodeUsage, "aucune instance indiquée"},
+		{"empreinte prefixee", []string{"get", "--argument", "--verifier-empreinte", "sha256:" + empreinte, identifiant}, CodeUsage, "aucune instance indiquée"},
+		{"identifiant malformé", []string{"get", "--argument", "a7f3k9x2m4n6#Zt8mQ4vP1nK"}, CodeUsage, "identifiant invalide"},
 		{"tiret sans entrée", []string{"get", "-"}, CodeUsage, "aucun identifiant"},
 		{"identifiant manquant", []string{"get"}, CodeUsage, "IDENTIFIANT requis"},
 		{"cache contradictoire", []string{"get", "-n", "--cache-seul", identifiant}, CodeUsage, "exclusifs"},
 		// « --cache-seul » sur un cache vide : même sémantique que le code 5
 		// du serveur (absente, expirée ou jamais mise en cache).
-		{"cache seul sans entrée", []string{"get", "--cache-seul", identifiant}, CodeIntrouvable, "cache local"},
+		{"cache seul sans entrée", []string{"get", "--argument", "--cache-seul", identifiant}, CodeIntrouvable, "cache local"},
 		{"empreinte invalide", []string{"get", "--verifier-empreinte", "zz12", identifiant}, CodeUsage, "empreinte invalide"},
 		{"deux identifiants", []string{"get", identifiant, identifiant}, CodeUsage, "argument inattendu"},
 	}

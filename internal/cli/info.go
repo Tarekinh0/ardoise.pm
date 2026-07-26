@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"ardoise.pm/internal/affichage"
 	"ardoise.pm/internal/config"
 )
 
@@ -59,7 +60,7 @@ func cmdInfo(ctx *Contexte, args []string) error {
 func rendreInfo(p *config.Politique, s *sortie) string {
 	var b strings.Builder
 	ligne := func(titre, valeur string) {
-		fmt.Fprintf(&b, "%s: %s\n", s.gras(padDroite(titre, 21)), valeur)
+		fmt.Fprintf(&b, "%s: %s\n", s.gras(affichage.PadDroite(titre, 21)), valeur)
 	}
 	ligne("Instance", p.Instance)
 	ligne("Mode", texteMode(p.Mode))
