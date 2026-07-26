@@ -28,6 +28,12 @@ type Contexte struct {
 	// CheminsConfigClient : fichiers client.json, ordre croissant de préséance.
 	CheminsConfigClient []string
 
+	// AutoInstaller, si non-nil, est appelé par Executer avant toute
+	// commande pour placer la page man et le binaire dans le PATH.
+	// ContexteSysteme le positionne sur autoInstaller ; les tests le
+	// laissent nil pour éviter de polluer le home du développeur.
+	AutoInstaller func()
+
 	// LireMotDePasse demande un mot de passe au terminal, écho coupé — le
 	// manuel interdit tout passage en argument. Substituable par les tests ;
 	// le mot de passe reste en []byte et l'appelant l'efface après usage.
@@ -61,6 +67,7 @@ func ContexteSysteme(args []string) *Contexte {
 		StdinTTY:            estTTY(os.Stdin),
 		StdoutTTY:           estTTY(os.Stdout),
 		CheminsConfigClient: chemins,
+		AutoInstaller:       autoInstaller,
 		LireMotDePasse:      lireMotDePasseTerminal,
 		Confirmer:           confirmerTerminal,
 		LireMots:            saisirMots,
@@ -114,6 +121,13 @@ Sous-commandes :
 // Executer répartit les arguments vers la commande visée et retourne le code
 // de sortie du processus. C'est l'unique point de traduction erreur → code.
 func Executer(ctx *Contexte) int {
+	// Auto-installation idempotente : page man + binaire dans le PATH.
+	// Désactivée dans les tests (AutoInstaller nil) pour ne pas écrire
+	// dans le home du développeur.
+	if ctx.AutoInstaller != nil {
+		ctx.AutoInstaller()
+	}
+
 	nom, reste, aide, err := resoudreCommande(ctx)
 	if err != nil {
 		fmt.Fprintf(ctx.Stderr, "ardoise : %v\n%s\n", err, usageGenerale)

@@ -249,6 +249,57 @@ func TestCodePourStatutHTTP(t *testing.T) {
 	}
 }
 
+func TestAutoInstallerHook(t *testing.T) {
+	// Vérifie que l'auto-install est appelée quand le hook est positionné.
+	appelee := false
+	ctx := &Contexte{
+		Args:      []string{"version"},
+		Stdin:     strings.NewReader(""),
+		Stdout:    new(bytes.Buffer),
+		Stderr:    new(bytes.Buffer),
+		Getenv:    func(string) string { return "" },
+		StdinTTY:  true,
+		StdoutTTY: false,
+		AutoInstaller: func() {
+			appelee = true
+		},
+	}
+	if code := Executer(ctx); code != CodeOK {
+		t.Fatalf("code = %d", code)
+	}
+	if !appelee {
+		t.Error("AutoInstaller doit être appelé quand il est positionné")
+	}
+}
+
+func TestAutoInstallerNonAppeleQuandNil(t *testing.T) {
+	// Vérifie que l'auto-install n'est PAS appelée quand le hook est nil
+	// (cas des tests, pour ne pas polluer le home du développeur).
+	ctx := &Contexte{
+		Args:      []string{"version"},
+		Stdin:     strings.NewReader(""),
+		Stdout:    new(bytes.Buffer),
+		Stderr:    new(bytes.Buffer),
+		Getenv:    func(string) string { return "" },
+		StdinTTY:  true,
+		StdoutTTY: false,
+		// AutoInstaller nil : l'auto-install est désactivée.
+	}
+	code := Executer(ctx)
+	if code != CodeOK {
+		t.Fatalf("code = %d", code)
+	}
+	// Aucun panic, aucune écriture dans le home : le test passe.
+}
+
+func TestAutoInstallerIntegration(t *testing.T) {
+	// Vérifie que ContexteSysteme positionne bien le hook.
+	ctx := ContexteSysteme([]string{"version"})
+	if ctx.AutoInstaller == nil {
+		t.Error("ContexteSysteme doit positionner AutoInstaller")
+	}
+}
+
 func TestTableCodesRetour(t *testing.T) {
 	// La table du manuel, exactement (0..9).
 	valeurs := []int{CodeOK, CodeErreur, CodeUsage, CodeRefusPolitique, CodeSecretDetecte,
