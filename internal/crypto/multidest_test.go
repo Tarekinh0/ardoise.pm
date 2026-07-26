@@ -47,7 +47,7 @@ func TestMultiDestFormat(t *testing.T) {
 	if err != nil || schema != VersionMultiDest {
 		t.Fatalf("Schema = 0x%02x, %v", schema, err)
 	}
-	if BesoinCle(schema) || BesoinMotDePasse(schema) {
+	if BesoinCle(schema) || BesoinMots(schema) {
 		t.Error("CHIF-MD n'exige ni fragment de clé ni mot de passe")
 	}
 	if !EstMultiDest(schema) {
@@ -171,7 +171,7 @@ func TestMultiDestDechiffrerRefuse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Dechiffrer(chiffre, make([]byte, TailleCle), nil); err == nil {
+	if _, err := Dechiffrer(chiffre, make([]byte, TailleCle)); err == nil {
 		t.Fatal("Dechiffrer doit refuser un chiffré CHIF-MD")
 	}
 }

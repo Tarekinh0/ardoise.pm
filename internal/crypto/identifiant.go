@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -16,17 +17,22 @@ const TailleIDServeur = 12
 // sont exclus pour éviter toute confusion visuelle avec o et l.
 const alphabetID = "abcdefghijklmnopqrstuvwxyz23456789"
 
-// NouvelIDServeur produit un identifiant serveur de 12 caractères tirés de
-// crypto/rand. L'alphabet comptant 34 symboles, la réduction d'un octet
-// aléatoire se fait par échantillonnage avec rejet : seuls les octets
-// inférieurs à 238 (= 7 × 34) sont acceptés, ce qui rend chaque symbole
-// exactement équiprobable.
-func NouvelIDServeur() (string, error) {
+// encoderIDDepuisSource produit un identifiant serveur de 12 caractères
+// tirés d'une source d'octets (io.Reader). L'alphabet comptant 34 symboles,
+// la réduction d'un octet se fait par échantillonnage avec rejet : seuls
+// les octets inférieurs à 238 (= 7 × 34) sont acceptés, ce qui rend chaque
+// symbole exactement équiprobable.
+//
+// Cette fonction est le cœur commun de NouvelIDServeur (source crypto/rand)
+// et de encoderID (source HMAC-DRBG déterministe pour CHIF-5). Son
+// extraction garantit l'équiprobabilité identique entre les deux chemins
+// et évite la duplication (AD C.2 de l'audit).
+func encoderIDDepuisSource(lecteur io.Reader) (string, error) {
 	const borne = byte(238) // plus grand multiple de 34 inférieur à 256
 	id := make([]byte, 0, TailleIDServeur)
 	tampon := make([]byte, 32)
 	for len(id) < TailleIDServeur {
-		if _, err := rand.Read(tampon); err != nil {
+		if _, err := lecteur.Read(tampon); err != nil {
 			return "", fmt.Errorf("génération de l'identifiant : %w", err)
 		}
 		for _, b := range tampon {
@@ -40,6 +46,13 @@ func NouvelIDServeur() (string, error) {
 		}
 	}
 	return string(id), nil
+}
+
+// NouvelIDServeur produit un identifiant serveur de 12 caractères tirés de
+// crypto/rand. Délègue à encoderIDDepuisSource avec crypto/rand.Reader
+// comme source d'octets aléatoires.
+func NouvelIDServeur() (string, error) {
+	return encoderIDDepuisSource(rand.Reader)
 }
 
 // IDServeurValide indique si id a la forme exacte d'un identifiant serveur :
@@ -59,8 +72,12 @@ func IDServeurValide(id string) bool {
 // FormatIdentifiant assemble l'identifiant remis à l'émetteur :
 // « <id-serveur>#<clé en base64url brut> ». Le séparateur « # » garantit
 // qu'en contexte d'URL le matériel de clé reste dans le fragment, jamais
-// transmis au serveur (docs/dat.md §4.3). Sans matériel de clé (CHIF-3),
-// l'identifiant se réduit à l'identifiant serveur.
+// transmis au serveur (docs/dat.md §4.3). Sans matériel de clé (CHIF-MD
+// ou mot mnémonique CHIF-5), l'identifiant se réduit à l'identifiant serveur.
+//
+// Si cle est nil ou de longueur nulle, l'identifiant se réduit à la partie
+// serveur seule. Toute autre longueur est encodée telle quelle — c'est à
+// l'appelant de garantir la conformité du matériel (32 octets).
 func FormatIdentifiant(id string, cle []byte) string {
 	if len(cle) == 0 {
 		return id

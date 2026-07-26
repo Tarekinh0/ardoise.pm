@@ -31,11 +31,11 @@ func TestAllerRetourCHIF4(t *testing.T) {
 	if err != nil || version != VersionServeur {
 		t.Fatalf("Schema = 0x%02x, %v", version, err)
 	}
-	if !BesoinCle(version) || BesoinMotDePasse(version) {
-		t.Fatal("CHIF-4 exige la clé du fragment, jamais de mot de passe")
+	if !BesoinCle(version) || BesoinMots(version) {
+		t.Fatal("CHIF-4 exige la clé du fragment, jamais de mots")
 	}
 
-	rendu, err := Dechiffrer(chiffre, cle, nil)
+	rendu, err := Dechiffrer(chiffre, cle)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,21 +45,21 @@ func TestAllerRetourCHIF4(t *testing.T) {
 
 	// Mauvaise clé : refus indistinct (ErrDechiffrement).
 	mauvaise := make([]byte, TailleCle)
-	if _, err := Dechiffrer(chiffre, mauvaise, nil); err != ErrDechiffrement {
+	if _, err := Dechiffrer(chiffre, mauvaise); err != ErrDechiffrement {
 		t.Fatalf("mauvaise clé : err = %v, attendu ErrDechiffrement", err)
 	}
 
 	// Altération du corps : refus.
 	altere := append([]byte(nil), chiffre...)
 	altere[len(altere)-1] ^= 0x01
-	if _, err := Dechiffrer(altere, cle, nil); err != ErrDechiffrement {
+	if _, err := Dechiffrer(altere, cle); err != ErrDechiffrement {
 		t.Fatalf("altération : err = %v, attendu ErrDechiffrement", err)
 	}
 
 	// Altération de l'octet de version (couvert par l'AAD) : refus.
 	usurpe := append([]byte(nil), chiffre...)
 	usurpe[0] = VersionCle
-	if _, err := Dechiffrer(usurpe, cle, nil); err != ErrDechiffrement {
+	if _, err := Dechiffrer(usurpe, cle); err != ErrDechiffrement {
 		t.Fatalf("version substituée : err = %v, attendu ErrDechiffrement", err)
 	}
 }
