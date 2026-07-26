@@ -182,6 +182,21 @@ type Depot struct {
 	// Pour restreint la lecture aux identités désignées (« --pour ») :
 	// identités individuelles ou groupes « @… », vérifiés par l'instance.
 	Pour []string
+	// IDSuggere est l'identifiant serveur suggéré par le client au dépôt
+	// (12 caractères [a-z2-9]). Il est utilisé en mode aveugle CHIF-5
+	// (--mots) pour que le serveur stocke l'ardoise sous l'identifiant
+	// dérivé des mots par le client — sans quoi le get --mots ne pourrait
+	// jamais la retrouver, le serveur générant un ID aléatoire.
+	IDSuggere string `json:"id_suggere,omitempty"`
+	// CleChiffrement (base64, 32 octets) et BlobSalt (base64, 16 octets)
+	// sont fournis par le client en mode analysé CHIF-5 (--mots).
+	//
+	// CleChiffrement est une string : les chaînes Go sont immuables — il
+	// n'existe pas d'effacement mémoire garanti pour ce champ après encodage
+	// JSON. La fenêtre d'exposition est bornée à la durée de la requête,
+	// le temps que l'instance la chiffre en magasin puis l'efface.
+	CleChiffrement string `json:"cle_chiffrement,omitempty"`
+	BlobSalt       string `json:"blob_salt,omitempty"`
 }
 
 // ReponseDepot est la réponse de l'instance à un dépôt. Cle n'est présente
@@ -204,12 +219,18 @@ func (c *Client) Deposer(d *Depot) (*ReponseDepot, error) {
 		LectureUnique      bool     `json:"lecture_unique,omitempty"`
 		Pour               []string `json:"pour,omitempty"`
 		MarquageComplement string   `json:"marquage_complement,omitempty"`
+		IDSuggere          string   `json:"id_suggere,omitempty"`
+		CleChiffrement     string   `json:"cle_chiffrement,omitempty"`
+		BlobSalt           string   `json:"blob_salt,omitempty"`
 	}{
 		Contenu:            base64.StdEncoding.EncodeToString(d.Contenu),
 		Duree:              d.Duree,
 		LectureUnique:      d.LectureUnique,
 		Pour:               d.Pour,
 		MarquageComplement: d.MarquageComplement,
+		IDSuggere:          d.IDSuggere,
+		CleChiffrement:     d.CleChiffrement,
+		BlobSalt:           d.BlobSalt,
 	}
 	var reponse ReponseDepot
 	if err := c.appelerAuthentifie(http.MethodPost, "/v1/ardoises", corps, &reponse); err != nil {

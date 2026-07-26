@@ -52,6 +52,8 @@ func (m *Memoire) DefinirRappelDestruction(rappel RappelDestruction) {
 
 // Deposer conserve une copie du contenu : l'appelant reste libre de
 // réutiliser ses tampons.
+//
+// S1 : lorsque maxArdoises est atteint, ErrSature est retourné.
 func (m *Memoire) Deposer(a *Ardoise) error {
 	copie := *a
 	copie.Chiffre = append([]byte(nil), a.Chiffre...)
@@ -63,6 +65,9 @@ func (m *Memoire) Deposer(a *Ardoise) error {
 	defer m.mu.Unlock()
 	if _, existe := m.ardoises[a.ID]; existe {
 		return ErrExiste
+	}
+	if m.maxArdoises > 0 && len(m.ardoises) >= m.maxArdoises {
+		return ErrSature
 	}
 	m.ardoises[a.ID] = &copie
 	return nil

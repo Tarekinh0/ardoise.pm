@@ -38,6 +38,9 @@ func nouveauPuitsFichier(chemin string) (*puitsFichier, error) {
 	return &puitsFichier{fichier: f}, nil
 }
 
+// Pas de Sync() ici : la synchronisation est faite à la fermeture
+// (JOURN-3, collecte périodique). Une coupure de courant peut entraîner
+// la perte des dernières entrées.
 func (p *puitsFichier) emettre(_ *Entree, canonique []byte) error {
 	ligne := make([]byte, 0, len(canonique)+1)
 	ligne = append(ligne, canonique...)

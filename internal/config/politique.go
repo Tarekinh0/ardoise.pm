@@ -3,7 +3,8 @@ package config
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
+
+	"ardoise.pm/internal/affichage"
 )
 
 // Dimensions de sécurité de la politique effective (docs/dat.md §5).
@@ -142,9 +143,8 @@ func (i *Instance) EcartsII901() []string {
 	if id := i.optionTTL().ID; id == "TTL-3" || id == "?" {
 		ecarts = append(ecarts, "durée de vie : au-delà du plafond de 24h (TTL-2) fixé par R57")
 	}
-	if i.Mode == ModeAveugle && i.optionChiffrement().ID == "CHIF-3" {
-		ecarts = append(ecarts, "protection des contenus : CHIF-3 sous le minimum CHIF-2 en mode aveugle")
-	}
+	// CHIF-5 (mo5 mnémoniques) est un choix exclusivement client (--mots) :
+	// la configuration serveur ne le porte pas et il n'entraîne pas d'écart II 901.
 	if i.optionAnalyse().ID == "ANA-4" {
 		ecarts = append(ecarts, "analyse : ANA-4 sous le minimum ANA-3 (détection de secrets, R35)")
 	}
@@ -173,9 +173,9 @@ func (i *Instance) RenduVerification(problemes []Probleme) string {
 	for _, td := range titresDimensions {
 		o, _ := p.Option(td.dimension)
 		fmt.Fprintf(&b, "  %s %s %s %s\n",
-			padDroite(td.titre, 17),
-			padDroite(o.ID, 8),
-			padDroite("("+o.Niveau+")", 5),
+			affichage.PadDroite(td.titre, 17),
+			affichage.PadDroite(o.ID, 8),
+			affichage.PadDroite("("+o.Niveau+")", 5),
 			o.Libelle)
 	}
 	if p.ConformeII901 {
@@ -202,14 +202,4 @@ func (i *Instance) RenduVerification(problemes []Probleme) string {
 		}
 	}
 	return b.String()
-}
-
-// padDroite complète une chaîne à droite jusqu'à n caractères (comptés en
-// runes : les accents ne cassent pas l'alignement).
-func padDroite(s string, n int) string {
-	manque := n - utf8.RuneCountInString(s)
-	if manque <= 0 {
-		return s
-	}
-	return s + strings.Repeat(" ", manque)
 }

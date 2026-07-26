@@ -35,16 +35,21 @@ var ErrExiste = errors.New("identifiant déjà employé")
 // distincte ne sert qu'à la journalisation interne.
 var ErrNonAdmis = errors.New("lecteur non admis pour cette ardoise")
 
+// ErrSature signale que le magasin a atteint le nombre maximal d'ardoises
+// simultanées (plafond configurable MaxArdoises, S1 de l'audit).
+var ErrSature = errors.New("nombre maximal d'ardoises atteint")
+
 // magasinBase porte les champs et la boucle de balayage partagés entre les
 // deux implémentations de Magasin (Memoire et Disque) : horloge injectable
 // pour les tests, canal d'arrêt, sync.Once pour idempotence de Fermer, et
 // rappel de destruction. Extrait en PR-107 — la duplication du balayage et
 // du rappel entre memoire.go et disque.go était auparavant de ~80 %.
 type magasinBase struct {
-	horloge func() time.Time
-	arret   chan struct{}
-	fermer  sync.Once
-	rappel  RappelDestruction
+	horloge     func() time.Time
+	arret       chan struct{}
+	fermer      sync.Once
+	rappel      RappelDestruction
+	maxArdoises int // S1 : plafond configurable (0 = pas de limite)
 }
 
 // definirRappelDestruction installe le rappel de destruction
@@ -53,6 +58,12 @@ type magasinBase struct {
 // NotifiantDestruction.
 func (b *magasinBase) definirRappelDestruction(rappel RappelDestruction) {
 	b.rappel = rappel
+}
+
+// FixerMaxArdoises impose un plafond sur le nombre d'ardoises simultanées
+// (S1 de l'audit). La valeur 0 désactive le plafond.
+func (b *magasinBase) FixerMaxArdoises(max int) {
+	b.maxArdoises = max
 }
 
 // balayer exécute la boucle de balayage périodique : à chaque tic, la

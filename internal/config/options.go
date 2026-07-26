@@ -26,10 +26,8 @@ var optionsAuth = map[string]Option{
 
 // §5.4 — Protection des contenus.
 var optionsChiffrement = map[string]Option{
-	"cle+motdepasse": {ID: "CHIF-1", Niveau: "R+", Libelle: "clé aléatoire par ardoise complétée d'un mot de passe"},
-	"cle":            {ID: "CHIF-2", Niveau: "R", Libelle: "clé aléatoire par ardoise, chiffrement local"},
-	"motdepasse":     {ID: "CHIF-3", Niveau: "R-", Libelle: "clé dérivée d'un mot de passe"},
-	"serveur":        {ID: "CHIF-4", Niveau: "R--", Libelle: "chiffrement par le serveur après analyse (cécité a posteriori)"},
+	"cle":     {ID: "CHIF-2", Niveau: "R", Libelle: "clé aléatoire par ardoise, chiffrement local"},
+	"serveur": {ID: "CHIF-4", Niveau: "R--", Libelle: "chiffrement par le serveur après analyse (cécité a posteriori)"},
 }
 
 // §5.9 — Rémanence côté client.

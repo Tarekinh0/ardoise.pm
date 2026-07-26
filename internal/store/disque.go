@@ -120,6 +120,8 @@ func (d *Disque) chemin(id string) string {
 
 // Deposer écrit l'enregistrement chiffré de manière atomique : fichier
 // temporaire dans le même répertoire, fsync, rename, fsync du répertoire.
+//
+// S1 : lorsque maxArdoises est atteint, ErrSature est retourné.
 func (d *Disque) Deposer(a *Ardoise) error {
 	if !idSain(a.ID) {
 		return errors.New("identifiant d'ardoise invalide pour le magasin sur disque")
@@ -149,6 +151,21 @@ func (d *Disque) Deposer(a *Ardoise) error {
 	defer d.mu.Unlock()
 	if _, err := os.Lstat(d.chemin(a.ID)); err == nil {
 		return ErrExiste
+	}
+	// S1 : vérifier le plafond
+	if d.maxArdoises > 0 {
+		entrees, err := os.ReadDir(d.repertoire)
+		if err == nil {
+			count := 0
+			for _, e := range entrees {
+				if strings.HasSuffix(e.Name(), extension) {
+					count++
+				}
+			}
+			if count >= d.maxArdoises {
+				return ErrSature
+			}
+		}
 	}
 	return d.ecrireAtomique(d.chemin(a.ID), scelle)
 }

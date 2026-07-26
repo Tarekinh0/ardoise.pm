@@ -150,7 +150,7 @@ func TestDefautsPrudents(t *testing.T) {
 		{"mode", inst.Mode, ModeAveugle},
 		{"auth.mecanisme", inst.Auth.Mecanisme, "mtls-materiel"},
 		{"auth.champ_identite", inst.Auth.ChampIdentite, "CN"},
-		{"contenu.chiffrement", inst.Contenu.Chiffrement, "cle+motdepasse"},
+		{"contenu.chiffrement", inst.Contenu.Chiffrement, "cle"},
 		{"contenu.taille_max", inst.Contenu.TailleMax, int64(256 * 1024)},
 		{"retention.support", inst.Retention.Support, "memoire"},
 		{"retention.lecture_unique", inst.Retention.LectureUnique, LectureUniqueImposee},
@@ -175,7 +175,7 @@ func TestDefautsPrudents(t *testing.T) {
 	p := inst.Politique()
 	attendus := map[string]string{
 		DimIdentification: "AUTH-1",
-		DimContenu:        "CHIF-1",
+		DimContenu:        "CHIF-2",
 		DimConservation:   "RET-1",
 		DimDureeDeVie:     "TTL-1",
 		DimRemanence:      "CACHE-1",
@@ -413,7 +413,11 @@ func TestVariantesOptions(t *testing.T) {
 			m["auth"]["mecanisme"] = "declaratif"
 			m["auth"]["ac_clients"] = ""
 		}, DimIdentification, "AUTH-4"},
-		{"CHIF-3 motdepasse", func(m map[string]map[string]any) { m["contenu"]["chiffrement"] = "motdepasse" }, DimContenu, "CHIF-3"},
+		{"CHIF-4 serveur", func(m map[string]map[string]any) {
+			m["instance"]["mode"] = "analyse"
+			m["analyse"]["icap_url"] = "icap://a.interne:1344/reqmod"
+			m["contenu"]["chiffrement"] = "serveur"
+		}, DimContenu, "CHIF-4"},
 		{"RET-1 lecture unique imposée", func(m map[string]map[string]any) { m["retention"]["lecture_unique"] = "imposee" }, DimConservation, "RET-1"},
 		{"RET-3 disque chiffré", func(m map[string]map[string]any) {
 			m["retention"]["support"] = "disque-chiffre"
@@ -477,7 +481,6 @@ func TestEcartsII901(t *testing.T) {
 	m["auth"]["mecanisme"] = "declaratif"
 	m["auth"]["ac_clients"] = ""
 	m["retention"]["duree_max"] = "168h"
-	m["contenu"]["chiffrement"] = "motdepasse"
 	m["analyse"]["secrets_client"] = "desactive"
 	m["journal"]["destination"] = "aucun"
 	m["journal"]["chainage"] = false
@@ -492,11 +495,11 @@ func TestEcartsII901(t *testing.T) {
 		t.Fatalf("problèmes inattendus : %v", problemes)
 	}
 	ecarts := inst.EcartsII901()
-	if len(ecarts) != 8 {
-		t.Fatalf("8 écarts attendus, obtenu %d : %v", len(ecarts), ecarts)
+	if len(ecarts) != 7 {
+		t.Fatalf("7 écarts attendus, obtenu %d : %v", len(ecarts), ecarts)
 	}
 	texte := strings.Join(ecarts, "\n")
-	for _, motif := range []string{"AUTH-4", "24h", "CHIF-3", "ANA-4", "JOURN-4", "TLS-3", "MARQ-2", "CACHE-3"} {
+	for _, motif := range []string{"AUTH-4", "24h", "ANA-4", "JOURN-4", "TLS-3", "MARQ-2", "CACHE-3"} {
 		if !strings.Contains(texte, motif) {
 			t.Errorf("écart mentionnant %q attendu dans :\n%s", motif, texte)
 		}

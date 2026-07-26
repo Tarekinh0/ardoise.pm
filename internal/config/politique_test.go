@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"ardoise.pm/internal/affichage"
 )
 
 func TestRenduVerificationConforme(t *testing.T) {
@@ -117,10 +119,10 @@ func TestDestinatairesAdmissibles(t *testing.T) {
 }
 
 func TestPadDroite(t *testing.T) {
-	if obtenu := padDroite("Durée de vie", 17); len([]rune(obtenu)) != 17 {
-		t.Errorf("padDroite doit compter en runes, obtenu %q", obtenu)
+	if obtenu := affichage.PadDroite("Durée de vie", 17); len([]rune(obtenu)) != 17 {
+		t.Errorf("PadDroite doit compter en runes, obtenu %q", obtenu)
 	}
-	if obtenu := padDroite("trop-long-pour-la-colonne", 5); obtenu != "trop-long-pour-la-colonne" {
-		t.Errorf("padDroite ne doit pas tronquer, obtenu %q", obtenu)
+	if obtenu := affichage.PadDroite("trop-long-pour-la-colonne", 5); obtenu != "trop-long-pour-la-colonne" {
+		t.Errorf("PadDroite ne doit pas tronquer, obtenu %q", obtenu)
 	}
 }

@@ -30,8 +30,8 @@
 //	                                                       identités membres) pour « --pour » ;
 //	                                                       refusée sous « declaratif » où la
 //	                                                       désignation est elle-même refusée
-//	contenu.chiffrement       "cle+motdepasse"    CHIF-1   R+ en mode aveugle ; en mode analyse le défaut
-//	                          (ou "serveur")      CHIF-4   est "serveur", seule valeur admissible du mode
+//	contenu.chiffrement       "cle"                  CHIF-2   R en mode aveugle ; en mode analyse le défaut
+//	                          (ou "serveur")         CHIF-4   est "serveur", seule valeur admissible du mode
 //	contenu.taille_max        "256Kio"            —        borne de l'exemple du manuel ; le service
 //	                                                       n'est pas un serveur de fichiers (ES-10)
 //	retention.support         "memoire"           RET-2    aucune persistance sur support
@@ -165,11 +165,12 @@ func (i *Instance) DestinatairesAdmissibles() bool {
 	return i.Auth.Mecanisme != MecanismeDeclaratif
 }
 
-// Contenu : protection des contenus (CHIF-1..4) et taille maximale (ES-10).
+// Contenu : protection des contenus (CHIF-2, CHIF-4, CHIF-5) et taille maximale (ES-10).
 type Contenu struct {
 	Chiffrement    string
 	TailleMaxTexte string
 	TailleMax      int64 // renseignée par la validation
+	MaxArdoises    int   // plafond du nombre d'ardoises (défaut 10000, S1)
 }
 
 // Retention : conservation et durée de vie (RET-1..3, TTL-1..3).
@@ -256,6 +257,7 @@ type sectionAuth struct {
 type sectionContenu struct {
 	Chiffrement *string `json:"chiffrement"`
 	TailleMax   *string `json:"taille_max"`
+	MaxArdoises *int    `json:"max_ardoises"`
 }
 
 type sectionRetention struct {
@@ -346,6 +348,13 @@ func defChaine(p *string, defaut string) string {
 	return *p
 }
 
+func defInt(p *int, defaut int) int {
+	if p == nil {
+		return defaut
+	}
+	return *p
+}
+
 // resoudre applique les défauts prudents documentés en tête de fichier.
 func resoudre(f *fichierInstance) *Instance {
 	si := f.Instance
@@ -399,13 +408,14 @@ func resoudre(f *fichierInstance) *Instance {
 		Groupes:       defChaine(sa.Groupes, ""),
 	}
 
-	defautChiffrement := "cle+motdepasse"
+	defautChiffrement := "cle"
 	if inst.Mode == ModeAnalyse {
 		defautChiffrement = "serveur"
 	}
 	inst.Contenu = Contenu{
 		Chiffrement:    defChaine(sc.Chiffrement, defautChiffrement),
 		TailleMaxTexte: defChaine(sc.TailleMax, "256Kio"),
+		MaxArdoises:    defInt(sc.MaxArdoises, 10000),
 	}
 
 	inst.Retention = Retention{
@@ -540,7 +550,7 @@ func (i *Instance) valider() []Probleme {
 
 	// [contenu]
 	if _, ok := optionsChiffrement[i.Contenu.Chiffrement]; !ok {
-		ajouter("contenu.chiffrement", "valeur « %s » inconnue (attendu : « cle+motdepasse », « cle », « motdepasse » ou « serveur »)", i.Contenu.Chiffrement)
+		ajouter("contenu.chiffrement", "valeur « %s » inconnue (attendu : « cle » ou « serveur ») — les schémas CHIF-5 (--mots) et CHIF-MD (--annuaire) sont des choix exclusivement client, jamais des valeurs de configuration serveur", i.Contenu.Chiffrement)
 	} else if modeValide {
 		if i.Mode == ModeAnalyse && i.Contenu.Chiffrement != "serveur" {
 			ajouter("contenu.chiffrement", "le mode « analyse » impose « serveur » (CHIF-4) : le serveur chiffre après le verdict d'analyse")
