@@ -21,6 +21,7 @@ import (
 	"ardoise.pm/internal/icap"
 	"ardoise.pm/internal/journal"
 	"ardoise.pm/internal/store"
+	"ardoise.pm/internal/tlsconfig"
 )
 
 // periodeBalayage est la période du balayage d'expiration du magasin.
@@ -33,27 +34,14 @@ const periodeBalayage = time.Minute
 // démesurés (PR-103 — constante nommée en remplacement du littéral inline).
 const maxHeaderBytes = 16 << 10
 
-// SuitesTLS12 est la liste fermée des suites autorisées lorsque TLS 1.2 est
-// admis (TLS-3) : ECDHE avec AES-GCM ou ChaCha20-Poly1305 exclusivement,
-// conformément au guide TLS de l'ANSSI. TLS 1.3 impose ses propres suites.
-func SuitesTLS12() []uint16 {
-	return []uint16{
-		tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-		tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-		tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-		tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-	}
-}
-
 // Serveur est une instance ardoise prête à écouter.
 type Serveur struct {
-	adresse     string
-	serveurHTTP *http.Server
-	ecouteur    net.Listener
-	magasin     store.Magasin
-	journal     *journal.Journal
+	adresse         string
+	serveurHTTP     *http.Server
+	ecouteur        net.Listener
+	magasin         store.Magasin
+	journal         *journal.Journal
+	annulerLimiteur context.CancelFunc // arrêt propre de la goroutine du limiteur de débit
 }
 
 // Nouveau prépare le serveur : adresse d'écoute (surcharge « --ecoute »
@@ -87,13 +75,20 @@ func Nouveau(inst *config.Instance, ecouteSurcharge string) (*Serveur, error) {
 		// TLS-3 : le repli 1.2 restreint les suites à la liste ANSSI ;
 		// en 1.3 (défaut), les suites sont celles, fixes, du protocole.
 		configTLS.MinVersion = tls.VersionTLS12
-		configTLS.CipherSuites = SuitesTLS12()
+		configTLS.CipherSuites = tlsconfig.SuitesTLS12()
 	}
 	if inst.Auth.ExigeCertificatClient() {
 		// AUTH-1/AUTH-2 : le certificat client est exigé et vérifié dès la
 		// poignée de main, exclusivement contre l'AC de auth.ac_clients —
 		// jamais contre le magasin système. La période de validité est
 		// contrôlée par crypto/x509 lors de la vérification de chaîne.
+		//
+		// Lorsque transport.epinglage est actif et que le client épingle
+		// déjà le certificat de l'instance (via --ac ou ARDOISE_AC), le
+		// contrôle ClientCAs du serveur n'ajoute aucun effet supplémentaire
+		// sur la confiance TLS : le client a déjà restreint l'AC reconnue
+		// pour l'instance. Cette redondance est défensive — elle protège un
+		// client qui, par erreur, omettrait son propre épinglage.
 		acClients, err := chargerACClients(inst.Auth.ACClients)
 		if err != nil {
 			return nil, err
@@ -176,12 +171,17 @@ func Nouveau(inst *config.Instance, ecouteSurcharge string) (*Serveur, error) {
 		analyseur = client
 	}
 
+	// Contexte lié au cycle de vie du serveur pour l'arrêt propre du
+	// limiteur de débit GET (PR-201). Le contexte est annulé dans Servir()
+	// lors de l'arrêt, ce qui stoppe la goroutine de nettoyage.
+	ctxLimiteur, annulerLimiteur := context.WithCancel(context.Background())
+
 	return &Serveur{
 		adresse: adresse,
 		magasin: magasin,
 		journal: jrnl,
 		serveurHTTP: &http.Server{
-			Handler:           Handler(inst, magasin, jetons, Dependances{Analyseur: analyseur, Journal: jrnl, Groupes: groupes}),
+			Handler:           Handler(inst, magasin, jetons, Dependances{Analyseur: analyseur, Journal: jrnl, Groupes: groupes, Limiteur: NouveauLimiteurDebit(ctxLimiteur)}),
 			TLSConfig:         configTLS,
 			ReadHeaderTimeout: 10 * time.Second,
 			ReadTimeout:       30 * time.Second,
@@ -189,6 +189,7 @@ func Nouveau(inst *config.Instance, ecouteSurcharge string) (*Serveur, error) {
 			IdleTimeout:       60 * time.Second,
 			MaxHeaderBytes:    maxHeaderBytes,
 		},
+		annulerLimiteur: annulerLimiteur,
 	}, nil
 }
 
@@ -210,6 +211,8 @@ func chargerACClients(chemin string) (*x509.CertPool, error) {
 // vive (RET-1/RET-2) ou disque chiffré (RET-3, clé lue depuis
 // retention.cle_magasin puis effacée localement).
 func nouveauMagasin(inst *config.Instance) (store.Magasin, error) {
+	var m store.Magasin
+	var err error
 	switch inst.Retention.Support {
 	case "disque-chiffre":
 		cle, err := store.ChargerCleMagasin(inst.Retention.CleMagasin)
@@ -217,14 +220,23 @@ func nouveauMagasin(inst *config.Instance) (store.Magasin, error) {
 			return nil, err
 		}
 		defer crypto.Effacer(cle)
-		magasin, err := store.NouveauDisque(context.Background(), inst.Retention.Repertoire, cle, periodeBalayage)
+		m, err = store.NouveauDisque(context.Background(), inst.Retention.Repertoire, cle, periodeBalayage)
 		if err != nil {
 			return nil, fmt.Errorf("magasin sur disque chiffré : %w", err)
 		}
-		return magasin, nil
 	default:
-		return store.NouveauMemoire(context.Background(), periodeBalayage), nil
+		m = store.NouveauMemoire(context.Background(), periodeBalayage)
 	}
+	// S1 : plafond configurable du nombre d'ardoises (défaut 10000)
+	if inst.Contenu.MaxArdoises > 0 {
+		switch mg := m.(type) {
+		case *store.Memoire:
+			mg.FixerMaxArdoises(inst.Contenu.MaxArdoises)
+		case *store.Disque:
+			mg.FixerMaxArdoises(inst.Contenu.MaxArdoises)
+		}
+	}
+	return m, err
 }
 
 // Ecouter ouvre la socket d'écoute. Séparé de Servir afin que l'appelant
@@ -288,9 +300,12 @@ func (s *Serveur) Servir(ctx context.Context) error {
 		}
 	}
 
-	// Arrêt explicite et ordonné : le magasin est fermé en premier —
-	// ses destructions (échéance, lecture unique) alimentent le journal
-	// via le rappel NotifiantDestruction — puis le journal se draine.
+	// Arrêt explicite et ordonné : le limiteur de débit est stoppé en
+	// premier (sa goroutine de nettoyage s'arrête sur annulation du
+	// contexte), puis le magasin est fermé — ses destructions (échéance,
+	// lecture unique) alimentent le journal via le rappel
+	// NotifiantDestruction — puis le journal se draine.
+	s.annulerLimiteur()
 	errMagasin := s.magasin.Fermer()
 	if s.journal != nil {
 		errJournal := s.journal.Fermer()

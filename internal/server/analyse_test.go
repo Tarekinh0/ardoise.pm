@@ -180,7 +180,7 @@ func TestAnalyseFavorable(t *testing.T) {
 		t.Fatal("l'empreinte annoncée ne correspond pas au chiffré conservé")
 	}
 	// La clé retournée — seule trace existante — ouvre le chiffré.
-	rendu, err := crypto.Dechiffrer(conserve.Chiffre, cle, nil)
+	rendu, err := crypto.Dechiffrer(conserve.Chiffre, cle)
 	if err != nil {
 		t.Fatal(err)
 	}

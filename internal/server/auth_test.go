@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"ardoise.pm/internal/config"
+	"ardoise.pm/internal/tlsconfig"
 )
 
 // igcTest est une IGC jetable : une AC racine et de quoi émettre des
@@ -586,7 +587,7 @@ func TestVersionTLSMinimale(t *testing.T) {
 	defer conn.Close()
 	suite := conn.ConnectionState().CipherSuite
 	admise := false
-	for _, s := range SuitesTLS12() {
+	for _, s := range tlsconfig.SuitesTLS12() {
 		if s == suite {
 			admise = true
 		}

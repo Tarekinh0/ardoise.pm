@@ -27,6 +27,7 @@ import (
 	"ardoise.pm/internal/config"
 	"ardoise.pm/internal/crypto"
 	"ardoise.pm/internal/store"
+	"ardoise.pm/internal/tlsconfig"
 )
 
 // genererMaterielTLS produit un certificat auto-signé (AC et serveur à la
@@ -594,7 +595,7 @@ func TestServirTLSEtArretPropre(t *testing.T) {
 }
 
 func TestSuitesTLS12SansFaiblesse(t *testing.T) {
-	for _, suite := range SuitesTLS12() {
+	for _, suite := range tlsconfig.SuitesTLS12() {
 		nom := tls.CipherSuiteName(suite)
 		if !strings.HasPrefix(nom, "TLS_ECDHE_") {
 			t.Errorf("suite sans ECDHE : %s", nom)
