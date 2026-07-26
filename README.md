@@ -23,7 +23,7 @@ et de l'IGI 1300 (classifie).
 | **CHIF-MD** | `0x05` | Multi-destinataires (ECDH) | R (II 901, IGI 1300) |
 
 CHIF-1 et CHIF-3 (mot de passe, cle+motdepasse) ont ete retires en V1.
-Details : [`docs/dat.md` §5.4](docs/dat.md) et [`CHIF5-MOTS.md`](CHIF5-MOTS.md).
+Details : [`docs/dat.md` §5.4](docs/dat.md) et annexe B.
 
 ---
 
@@ -86,9 +86,7 @@ se transmet par un canal maitrise.
 - **Distribution** paquets signes, builds reproductibles, installation hors ligne
 
 Architecture complete : [`docs/dat.md`](docs/dat.md).  
-Manuel : [`docs/man.md`](docs/man.md).  
-Audit : [`AUDIT.md`](AUDIT.md).  
-CHIF-5 : [`CHIF5-MOTS.md`](CHIF5-MOTS.md).
+Manuel : [`docs/man.md`](docs/man.md).
 
 ---
 

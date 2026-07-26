@@ -55,7 +55,8 @@ AGENTS.md
 opencode.jsonc
 
 # Docker compose et CI
-docker-compose.yml
+deploy/docker-compose.yml
+deploy/docker-compose.realicap.yml
 docker-compose.override.yml
 .github/
 

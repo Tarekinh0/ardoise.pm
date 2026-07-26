@@ -1,8 +1,8 @@
 # docker-compose.realicap.yml — Surcharge pour tests avec le vrai serveur ICAP
 # OPSWAT MetaDefender ICAP Server (opswat/metadefendericapsrv-centos).
 #
-# Usage :
-#   docker compose -f docker-compose.yml -f docker-compose.realicap.yml up
+# Usage (depuis la racine du dépôt) :
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.realicap.yml up
 #
 # Prérequis : le serveur OPSWAT MetaDefender doit être licencié.
 # Sans licence valide, utiliser le mock ICAP (profil « full »).

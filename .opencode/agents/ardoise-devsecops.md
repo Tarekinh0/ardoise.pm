@@ -13,7 +13,7 @@ permission:
     "pkg/**": allow
     "tests/**": allow
     "Dockerfile": allow
-    "docker-compose.yml": allow
+    "deploy/docker-compose.yml": allow
     ".github/workflows/**": ask
     "docs/implementation/**": allow
     "docs/dat.md": deny

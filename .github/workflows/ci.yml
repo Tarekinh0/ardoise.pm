@@ -134,7 +134,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
       - name: Build image mock-icap (PR-114)
-        run: docker build -f Dockerfile.mock-icap -t mock-icap:ci .
+        run: docker build -f testdata/mock-icap/Dockerfile -t mock-icap:ci testdata/mock-icap
       - name: Vérifier utilisateur non-root (mock-icap)
         run: |
           USER_ID=$(docker inspect mock-icap:ci --format '{{.Config.User}}')

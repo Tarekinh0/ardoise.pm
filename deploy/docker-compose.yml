@@ -1,8 +1,8 @@
 # Ardoise — Environnement d'intégration docker-compose (P-001)
-# Usage :
-#   docker compose --profile full up    # ardoise + mock ICAP + syslog
-#   docker compose --profile realicap up # ardoise + real ICAP + syslog  
-#   docker compose up                   # ardoise seul
+# Usage (depuis la racine du dépôt) :
+#   docker compose -f deploy/docker-compose.yml --profile full up    # ardoise + mock ICAP + syslog
+#   docker compose -f deploy/docker-compose.yml --profile realicap up # ardoise + real ICAP + syslog  
+#   docker compose -f deploy/docker-compose.yml up                   # ardoise seul
 #
 # Sécurité (SRQ-P001-2..6) :
 #   - réseau interne dédié, pas de ports hôte exposés sauf test
@@ -15,7 +15,7 @@ services:
   ardoise:
     image: ardoise:latest
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile
     container_name: ardoise-server
     user: "1000:1000"
@@ -31,7 +31,7 @@ services:
     volumes:
       # Configuration montée en lecture seule (SRQ-P001-5)
       - type: bind
-        source: ./tmp/test-config.json
+        source: ../tmp/test-config.json
         target: /etc/ardoise/ardoise.json
         read_only: true
       # Espace inscriptible temporaire (tmpfs)
@@ -43,16 +43,16 @@ services:
       - store-data:/var/lib/ardoise:rw
       # Clef de chiffrement du magasin (montée en lecture seule, DPO-P-001-2)
       - type: bind
-        source: ./tmp/store.key
+        source: ../tmp/store.key
         target: /etc/ardoise/store.key
         read_only: true
       # Matériel TLS (monté en lecture seule, jamais dans l'image)
       - type: bind
-        source: ./tmp/certs/server.pem
+        source: ../tmp/certs/server.pem
         target: /etc/ardoise/certs/server.pem
         read_only: true
       - type: bind
-        source: ./tmp/certs/server.key
+        source: ../tmp/certs/server.key
         target: /etc/ardoise/certs/server.key
         read_only: true
     environment:
@@ -99,8 +99,8 @@ services:
     profiles:
       - full
     build:
-      context: .
-      dockerfile: Dockerfile.mock-icap
+      context: ../testdata/mock-icap
+      dockerfile: Dockerfile
     container_name: mock-icap
     user: "1000:1000"
     read_only: true
@@ -147,7 +147,7 @@ services:
           size: 64M
 
   # Real ICAP server — OPSWAT MetaDefender ICAP Server (tests avancés)
-  # Déclenché avec : docker compose --profile realicap up
+  # Déclenché avec : docker compose -f deploy/docker-compose.yml --profile realicap up
   real-icap:
     profiles:
       - realicap
