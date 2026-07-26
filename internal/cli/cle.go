@@ -23,12 +23,10 @@ Options :
                         ou ARDOISE_CLE_PRIVEE)
 ` + aideCommunes
 
-// cmdCle porte la gestion du matériel de destinataire (CHIF-MD, ADR-014
-// cas a). Cette version ne sait que générer : la distribution des clés
-// publiques (annuaire) et le renouvellement relèvent de l'IGC de l'entité —
-// cette commande n'est qu'un POINT D'ANCRAGE en attendant cette
-// intégration, documentée comme telle (docs/dat.md, ADR-014 : « suppose un
-// annuaire de clés publiques, donc une IGC opérationnelle »).
+// cmdCle porte la gestion du matériel de destinataire (CHIF-MD). Cette
+// version ne sait que générer : la distribution des clés publiques (annuaire)
+// et le renouvellement relèvent de l'IGC de l'entité — cette commande n'est
+// qu'un point d'ancrage en attendant cette intégration.
 func cmdCle(ctx *Contexte, args []string) error {
 	fs := nouveauFS("cle")
 	var com optionsCommunes

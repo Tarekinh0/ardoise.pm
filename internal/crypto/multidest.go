@@ -1,9 +1,9 @@
 package crypto
 
-// Chiffrement multi-destinataires « CHIF-MD » (docs/dat.md ADR-014, cas a) :
-// la clé de contenu est enveloppée une fois par destinataire au moyen de sa
-// clé publique X25519, chaque destinataire ouvrant seul avec son propre
-// matériel. Bibliothèque standard exclusivement : crypto/ecdh (X25519),
+// Chiffrement multi-destinataires « CHIF-MD » : la clé de contenu est
+// enveloppée une fois par destinataire au moyen de sa clé publique X25519,
+// chaque destinataire ouvrant seul avec son propre matériel. Bibliothèque
+// standard exclusivement : crypto/ecdh (X25519),
 // crypto/hkdf (HKDF-SHA256) et AES-256-GCM — aucune primitive absente de
 // l'annexe B (SHA-256, AES-GCM) hormis X25519, introduit par ce schéma et
 // documenté ici.

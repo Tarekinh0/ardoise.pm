@@ -342,20 +342,6 @@ Trois modes de couverture : **C** — satisfait par construction (aucune configu
 **Décision.** Le client peut, lorsque l'instance l'autorise, conserver localement le **contenu chiffré tel que reçu**, indexé par l'empreinte de l'identifiant serveur ; la clé reste dans l'identifiant détenu par l'utilisateur et n'est jamais écrite. L'échéance du cache ne peut excéder celle de l'ardoise. L'autorisation et le niveau (§5.9) sont déclarés par le serveur ; le client ne peut pas les outrepasser.
 **Conséquences.** La destruction côté serveur peut intervenir dès la première lecture sans perte d'ergonomie. En contrepartie, le contenu survit sur le poste destinataire jusqu'à l'échéance : la garantie de disparition devient conditionnée au respect de l'échéance par le poste, lui-même supposé géré et durci (HE-2). Le cache n'introduit aucun secret nouveau au repos, la clé n'y figurant pas.
 
-### ADR-014 — Lecture par un groupe : multi-destinataires et libération sous double approbation
-**Statut : proposé — à instruire (PO-6).**
-**Contexte.** Un besoin de partage à plusieurs destinataires est identifié. Il recouvre deux exigences qu'il convient de ne pas confondre : (a) *chaque destinataire lit seul, avec son propre secret* ; (b) *la lecture requiert la coopération de deux personnes distinctes*.
-
-**Analyse du cas (a) — partage à plusieurs destinataires.** Le besoin relève du chiffrement multi-destinataires : la clé de contenu est enveloppée une fois par destinataire, au moyen de sa clé publique. Un schéma à seuil y serait inadapté — un seuil de 1 revient à remettre le secret entier à chacun. Ce cas suppose un annuaire de clés publiques, donc une IGC opérationnelle, capacité déjà requise par AUTH-2 ; il n'introduit aucune propriété de sécurité nouvelle et se comporte comme une extension du modèle actuel.
-
-**Analyse du cas (b) — contrôle à deux.** Le périmètre réel de ce besoin est étroit. Son cas d'usage canonique — le scellement d'un secret de recouvrement — est explicitement hors périmètre du produit (R35, ADR-007, ES-12). Le contrôle « four-eyes » évoqué par le guide (§12.2) porte sur la supervision d'actions d'administration en temps réel, non sur la lecture d'un contenu. Subsistent deux besoins légitimes : l'arbitrage collectif du besoin d'en connaître (nul ne décide seul d'ouvrir un contenu sensible), et la parade à la compromission d'un administrateur unique (attaquant A3), étant entendu que la propriété obtenue est probatoire et dissuasive — elle empêche l'ouverture par une seule personne, non la divulgation ultérieure par celui qui a ouvert.
-
-**Écartement du partage de secret à seuil.** Un schéma de type Shamir a été envisagé et n'est pas retenu. La dissociation du chiffré et de la clé, déjà structurelle dans le produit, permet d'obtenir la même propriété avec les briques existantes : la clé est détenue par un premier acteur, la libération du chiffré est subordonnée à l'approbation authentifiée d'un second, appliquée et journalisée par le serveur. Deux identités distinctes sont ainsi nécessaires, la coopération est tracée, et le serveur n'apprend rien du contenu puisqu'il ne détient jamais la clé. Un schéma à seuil n'apporterait davantage que dans l'hypothèse d'un seuil *k* parmi *n* avec *n* élevé, et d'un refus de confier au serveur l'application de la règle de libération — hypothèse difficile à soutenir pour une ressource d'administration maîtrisée et homologuée par l'entité. En regard, il imposerait la distribution et la conservation de parts, une surface d'évaluation et un inventaire cryptographique supplémentaires, pour un gain marginal.
-
-**Décision (proposée).** Traiter les deux cas séparément et sans partage de secret à seuil. Cas (a) : chiffrement multi-destinataires adossé à l'annuaire de clés publiques de l'entité, à instruire en premier. Cas (b) : libération du contenu subordonnée à l'approbation authentifiée d'une seconde identité, appliquée par le serveur, à instruire comme option distincte du §5.
-
-**Conséquences attendues.** Le cas (b) enrichit le modèle d'imputabilité (ADR-005), qui consignerait l'identité de l'approbateur et l'horodatage de son approbation, en sus de celles de l'émetteur et du lecteur. Aucun des deux cas n'introduit de mécanisme cryptographique absent de l'annexe B.
-
 ## 10. Points ouverts
 
 | ID | Point | Statut |
@@ -365,7 +351,7 @@ Trois modes de couverture : **C** — satisfait par construction (aucune configu
 | PO-3 | Choix de la licence. | **Clos**, sous réserve de validation juridique — ADR-012. |
 | PO-4 | Trajectoire d'évaluation externe. | **Retiré** — hors périmètre du présent document. |
 | PO-5 | Modèle de menace et inventaire cryptographique. | **Clos** — annexes A et B. |
-| PO-6 | Lecture par un groupe : chiffrement multi-destinataires (cas a) et libération sous double approbation (cas b). Partage de secret à seuil écarté. | **Ouvert** — instruction de l'ADR-014. |
+| PO-6 | Lecture par un groupe. | **Retiré** — hors périmètre. |
 
 ## Annexe A — Modèle de menace (synthèse)
 

@@ -12,7 +12,7 @@ import (
 // complètent le fichier du manuel afin de couvrir les mêmes réglages que les
 // variables d'environnement ARDOISE_PKCS11 et ARDOISE_JETON ; annuaire et
 // cle_privee_ardoise portent le chiffrement multi-destinataires (CHIF-MD,
-// ADR-014 cas a) :
+// :
 //
 //	Clé                 Variable              Rôle
 //	───────────────────────────────────────────────────────────────────────

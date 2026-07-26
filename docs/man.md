@@ -95,7 +95,7 @@ La taille de contenu est bornée par l'instance (`contenu.taille_max`, 256 Kio p
 : Restreint la lecture aux identités désignées. Un destinataire est une identité individuelle (`alice.durand`) ou un groupe de l'annuaire de l'entité, préfixé d'une arobase (`@equipe-reseau`). La vérification est appliquée par l'instance : un lecteur non désigné reçoit la même réponse qu'une ardoise inexistante, sans rien apprendre de son existence. Option indisponible sur les instances retenant l'identification déclarative, l'identité du lecteur y étant falsifiable. Sans `--pour`, l'ardoise est au porteur — toute identité authentifiée présentant l'identifiant peut lire.
 
 **--annuaire** *CHEMIN*
-: Active le chiffrement multi-destinataires (CHIF-MD, ADR-014 cas a) en complément de `--pour`. L'annuaire est un fichier JSON associant chaque identité de destinataire à sa clé publique X25519 en base64. Lorsque chaque destinataire individuel désigné possède une clé dans l'annuaire, la clé de contenu est enveloppée séparément pour chacun : chaque destinataire ouvre avec sa propre clé privée, sans secret partagé — ce qui protège également contre une instance compromise, contrairement à la vérification serveur seule. Un groupe (`@…`) ou une identité sans clé dans l'annuaire fait retomber sur la seule vérification serveur (avec avertissement). L'identifiant d'une ardoise CHIF-MD porte le fragment `#md` (une sentinelle, jamais une clé) et le destinataire doit disposer de sa clé privée (`cle_privee_ardoise`, `ARDOISE_CLE_PRIVEE`). Surcharge la clé `annuaire` de la configuration client et la variable `ARDOISE_ANNUAIRE`. Voir `ardoise cle --generer`.
+: Active le chiffrement multi-destinataires (CHIF-MD) en complément de `--pour`. L'annuaire est un fichier JSON associant chaque identité de destinataire à sa clé publique X25519 en base64. Lorsque chaque destinataire individuel désigné possède une clé dans l'annuaire, la clé de contenu est enveloppée séparément pour chacun : chaque destinataire ouvre avec sa propre clé privée, sans secret partagé — ce qui protège également contre une instance compromise, contrairement à la vérification serveur seule. Un groupe (`@…`) ou une identité sans clé dans l'annuaire fait retomber sur la seule vérification serveur (avec avertissement). L'identifiant d'une ardoise CHIF-MD porte le fragment `#md` (une sentinelle, jamais une clé) et le destinataire doit disposer de sa clé privée (`cle_privee_ardoise`, `ARDOISE_CLE_PRIVEE`). Surcharge la clé `annuaire` de la configuration client et la variable `ARDOISE_ANNUAIRE`. Voir `ardoise cle --generer`.
 
 **--marquage** *TEXTE*
 : Ajoute une mention libre au marquage automatique de l'instance. Ne remplace jamais ce dernier.
@@ -271,7 +271,7 @@ En mode `"analyse"`, une adresse ICAP est obligatoire : son absence empêche le 
 
 ## FICHIER DE CONFIGURATION CLIENT
 
-Format JSON strict, mêmes règles que la configuration d'instance. Les clés `annuaire` et `cle_privee_ardoise` portent le chiffrement multi-destinataires (CHIF-MD, ADR-014).
+Format JSON strict, mêmes règles que la configuration d'instance. Les clés `annuaire` et `cle_privee_ardoise` portent le chiffrement multi-destinataires (CHIF-MD).
 
 ```json
 {
@@ -454,10 +454,7 @@ Les fonctions suivantes n'existent pas et ne sont pas prévues. Leur absence est
 
 ## FONCTIONS RÉSERVÉES
 
-La fonction suivante est implémentée ; la seconde est à l'étude pour une version ultérieure.
-
-- **Chiffrement multi-destinataires (CHIF-MD, ADR-014 cas a) — implémenté.** La clé de contenu est enveloppée une fois par destinataire au moyen de sa clé publique X25519, publiée dans un annuaire de l'entité. Chaque destinataire ouvre avec sa propre clé privée, sans secret partagé. Activé par `--annuaire` en complément de `--pour`. L'identifiant porte le fragment `#md` (sentinelle, jamais une clé). La génération du matériel de destinataire se fait avec `ardoise cle --generer`. Voir `--annuaire` et `cle_privee_ardoise`.
-- **Libération sous double approbation (ADR-014 cas b) — à l'étude.** Libération d'un contenu subordonnée à l'approbation authentifiée d'une seconde identité, appliquée et journalisée par l'instance.
+- **Chiffrement multi-destinataires (CHIF-MD) — implémenté.** La clé de contenu est enveloppée une fois par destinataire au moyen de sa clé publique X25519, publiée dans un annuaire de l'entité. Chaque destinataire ouvre avec sa propre clé privée, sans secret partagé. Activé par `--annuaire` en complément de `--pour`. L'identifiant porte le fragment `#md` (sentinelle, jamais une clé). La génération du matériel de destinataire se fait avec `ardoise cle --generer`. Voir `--annuaire` et `cle_privee_ardoise`.
 
 ## CONFORMITÉ
 

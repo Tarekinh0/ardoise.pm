@@ -125,8 +125,4 @@ vente interdite. Voir [ADR-012](docs/dat.md).
 
 ---
 
-## Roadmap
 
-[`docs/implementation/backlog/ardoise-v1-roadmap.md`](docs/implementation/backlog/ardoise-v1-roadmap.md).
-
-Etat : **V1 implementee** — 10 sprints executes, 30/31 tests integration PASS.

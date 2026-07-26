@@ -48,7 +48,8 @@ Thumbs.db
 .env
 docker-compose.override.yml
 
-# Sprint work
+# Runtime
 /tmp/
 /report.md
-/docs/implementation/sprints/
+
+

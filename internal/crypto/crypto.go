@@ -23,7 +23,7 @@
 //     au lieu de deux). Voir mots.go.
 //
 //   - CHIF-MD (« multi-destinataires ») : clé de contenu enveloppée sous
-//     X25519 pour chaque destinataire (ADR-014, cas a). Voir multidest.go.
+//     X25519 pour chaque destinataire. Voir multidest.go.
 //
 // # Format du chiffré
 //
@@ -79,7 +79,7 @@ const (
 	VersionServeur byte = 0x04 // CHIF-4 — chiffré par le serveur après analyse
 	VersionMots    byte = 0x06 // CHIF-5 — mots mnémoniques
 	// VersionMultiDest (0x05, CHIF-MD) est déclarée dans multidest.go avec
-	// son format propre (ADR-014, cas a).
+	// son format propre.
 	//
 	// Les octets 0x02 (ex-CHIF-3) et 0x03 (ex-CHIF-1) sont retirés :
 	// les schémas CHIF-1 et CHIF-3 ont été supprimés en faveur de CHIF-5

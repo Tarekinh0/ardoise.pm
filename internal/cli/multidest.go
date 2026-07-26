@@ -13,7 +13,7 @@ import (
 )
 
 // chargerAnnuaire lit l'annuaire de clés publiques X25519 des destinataires
-// (CHIF-MD, ADR-014 cas a) : un fichier JSON strict associant chaque
+// (CHIF-MD) : un fichier JSON strict associant chaque
 // identité à sa clé publique en base64, par exemple :
 //
 //	{ "alice.durand": "hSDwCYkwp1R0i33ctD73Wg2/Og0mOBr066SpjqqbTmo=" }
@@ -88,7 +88,7 @@ func decoderCle32(texte string) ([]byte, error) {
 }
 
 // destinatairesChiffrement décide du chiffrement multi-destinataires d'un
-// dépôt « --pour » en mode aveugle (ADR-014, cas a). La cryptographie ne
+// dépôt « --pour » en mode aveugle. La cryptographie ne
 // s'applique que lorsque CHAQUE destinataire individuel a une clé publique
 // dans l'annuaire :
 //

@@ -20,7 +20,7 @@ import (
 // La coupure d'écho s'appuie sur les ioctl TCGETS/TCSETS du paquet syscall
 // de la bibliothèque standard : le budget de dépendances du projet (stdlib
 // + golang.org/x/crypto seul) exclut golang.org/x/term, et la cible du
-// produit est Linux (AGENTS.md). La saisie est lue octet par octet et
+// produit est Linux. La saisie est lue octet par octet et
 // retournée en []byte, jamais convertie en chaîne (annexe B).
 func lireMotDePasseTerminal(invite string) ([]byte, error) {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)

@@ -45,14 +45,11 @@ ardoise
 *.swo
 *~
 .claude/
-.opencode/
 
 # Documentation (pas utile dans l'image)
 docs/
 README.md
 report.md
-AGENTS.md
-opencode.jsonc
 
 # Docker compose et CI
 deploy/docker-compose.yml
