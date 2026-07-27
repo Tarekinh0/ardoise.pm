@@ -27,6 +27,9 @@ func autoInstaller() {
 // installerPageMan écrit la page ARDOISE(1) dans ~/.local/share/man/man1/
 // si elle n'y est pas déjà.
 func installerPageMan(home string) {
+	if pageManuel == "" {
+		return
+	}
 	cible := filepath.Join(home, ".local", "share", "man", "man1", "ardoise.1")
 	if _, err := os.Stat(cible); err == nil {
 		return // déjà installée
@@ -34,9 +37,12 @@ func installerPageMan(home string) {
 	if err := os.MkdirAll(filepath.Dir(cible), 0755); err != nil {
 		return
 	}
-	if err := os.WriteFile(cible, []byte(pageManuel), 0644); err != nil {
-		return
+	f, err := os.OpenFile(cible, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		return // fichier déjà créé concurrentiellement, ou autre erreur
 	}
+	f.Write([]byte(pageManuel))
+	f.Close()
 }
 
 // installerBinaire copie l'exécutable courant vers /usr/local/sbin/ardoise
@@ -44,20 +50,21 @@ func installerPageMan(home string) {
 func installerBinaire(binaire, home string) {
 	// Cible 1 : /usr/local/sbin (nécessite écriture, typiquement root)
 	cibleSysteme := "/usr/local/sbin/ardoise"
-	if peutEcrire(cibleSysteme) {
+	if assurerRepertoireAccessible(cibleSysteme) {
 		faireLienOuCopie(binaire, cibleSysteme)
 		return
 	}
 	// Cible 2 : ~/.local/bin (utilisateur, sans privilège)
 	cibleUser := filepath.Join(home, ".local", "bin", "ardoise")
-	if peutEcrire(cibleUser) {
+	if assurerRepertoireAccessible(cibleUser) {
 		faireLienOuCopie(binaire, cibleUser)
 	}
 }
 
-// peutEcrire vérifie si le répertoire parent du chemin cible existe et est
-// accessible en écriture. Si la cible elle-même existe déjà, on ne fait rien.
-func peutEcrire(cible string) bool {
+// assurerRepertoireAccessible vérifie si le répertoire parent du chemin cible
+// existe et est accessible en écriture, en le créant si nécessaire.
+// Si la cible elle-même existe déjà, on ne fait rien.
+func assurerRepertoireAccessible(cible string) bool {
 	if _, err := os.Stat(cible); err == nil {
 		return false // déjà présent
 	}

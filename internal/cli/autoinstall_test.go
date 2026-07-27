@@ -83,31 +83,31 @@ func TestInstallerBinaireUser(t *testing.T) {
 	}
 }
 
-func TestPeutEcrireFichierExistant(t *testing.T) {
+func TestAssurerRepertoireAccessibleFichierExistant(t *testing.T) {
 	tmp := t.TempDir()
 	fichier := filepath.Join(tmp, "existant")
 	if err := os.WriteFile(fichier, nil, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if peutEcrire(fichier) {
-		t.Error("peutEcrire doit retourner false quand la cible existe déjà")
+	if assurerRepertoireAccessible(fichier) {
+		t.Error("assurerRepertoireAccessible doit retourner false quand la cible existe déjà")
 	}
 }
 
-func TestPeutEcrireRepertoireAccessible(t *testing.T) {
+func TestAssurerRepertoireAccessibleRepertoireAccessible(t *testing.T) {
 	tmp := t.TempDir()
 	cible := filepath.Join(tmp, "ardoise")
-	if !peutEcrire(cible) {
-		t.Error("peutEcrire doit retourner true pour un répertoire temporaire accessible")
+	if !assurerRepertoireAccessible(cible) {
+		t.Error("assurerRepertoireAccessible doit retourner true pour un répertoire temporaire accessible")
 	}
 }
 
-func TestPeutEcrireRepertoireCree(t *testing.T) {
+func TestAssurerRepertoireAccessibleRepertoireCree(t *testing.T) {
 	// Le répertoire parent n'existe pas encore : MkdirAll est tenté.
 	tmp := t.TempDir()
 	cible := filepath.Join(tmp, "sousrep", "ardoise")
-	if !peutEcrire(cible) {
-		t.Error("peutEcrire doit créer le répertoire parent et retourner true")
+	if !assurerRepertoireAccessible(cible) {
+		t.Error("assurerRepertoireAccessible doit créer le répertoire parent et retourner true")
 	}
 	if _, err := os.Stat(filepath.Dir(cible)); err != nil {
 		t.Errorf("le répertoire parent n'a pas été créé : %v", err)
