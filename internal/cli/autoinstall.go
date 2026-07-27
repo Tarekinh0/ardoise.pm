@@ -41,8 +41,15 @@ func installerPageMan(home string) {
 	if err != nil {
 		return // fichier déjà créé concurrentiellement, ou autre erreur
 	}
-	f.Write([]byte(pageManuel))
-	f.Close()
+	if _, err := f.Write([]byte(pageManuel)); err != nil {
+		f.Close()
+		os.Remove(cible)
+		return
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(cible)
+		return
+	}
 }
 
 // installerBinaire copie l'exécutable courant vers /usr/local/sbin/ardoise
@@ -121,8 +128,11 @@ func faireLienOuCopie(src, dst string) {
 	}
 	nomTmp := tmp.Name()
 	ok := false
+	tmpClosed := false
 	defer func() {
-		tmp.Close()
+		if !tmpClosed {
+			tmp.Close()
+		}
 		if !ok {
 			os.Remove(nomTmp)
 		}
@@ -134,6 +144,7 @@ func faireLienOuCopie(src, dst string) {
 	if err := tmp.Close(); err != nil {
 		return
 	}
+	tmpClosed = true
 	if err := os.Chmod(nomTmp, 0755); err != nil {
 		return
 	}
