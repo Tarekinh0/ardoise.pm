@@ -22,8 +22,10 @@ destinataire, puis penser à supprimer le fichier. Si le contenu est sensible, i
 faut en plus le chiffrer manuellement et transmettre la clé par un second canal.
 Pour un échange de quelques minutes, ce coût de friction est rédhibitoire.
 
-Un pastebin privé, sans compromis entre ergonomie et confidentialité — y compris
-pour les informations sensibles d'administration.
+**adroise.pm** est un pastebin privé, sans compromis entre ergonomie et confidentialité — y
+compris pour les informations sensibles d'administration.
+
+Quelques propriétés d'**ardoise** :
 
 - Durée de vie limitée : chaque ardoise expire automatiquement, sans option de
   conservation illimitée.
@@ -31,9 +33,9 @@ pour les informations sensibles d'administration.
   l'instance.
 - Chiffrement de bout en bout en mode aveugle : la clé est portée par l'identifiant
   côté client et n'est jamais transmise au serveur.
-- Aucun compte, aucun listage, aucune recherche.
+- Aucun compte, aucun listage ou recherche possible.
 - Journalisation des actes uniquement (métadonnées), jamais du contenu.
-- Binaire statique unique contenant le client et le serveur.
+- Binaire statique léger unique contenant le client et le serveur.
 
 ## Les deux modes
 
@@ -43,11 +45,11 @@ peut jamais l'affaiblir.
 | Mode | Le serveur voit-il le clair ? | Quand l'utiliser |
 |---|---|---|
 | **Aveugle** | Jamais. Chiffrement sur le poste émetteur. | Les deux extrémités sont déjà dans la zone d'administration de confiance. **Exigé en contexte classifié (IGI 1300).** |
-| **Analysé** | Le temps de l'analyse imposée. | Le texte franchit une frontière de zone (bureautique → administration) et la politique impose l'inspection de tout contenu (ANSSI R58). |
+| **Analysé** | Le temps de l'analyse imposée. | Le texte franchit une frontière de zone (bureautique → administration) et la politique impose l'inspection de tout contenu (ANSSI Guide PA-022 R58). |
 
 > ⚠️ **Le mode analysé n'est pas un chiffrement de bout en bout.** L'instance accède au
 > contenu en clair pendant l'analyse. Le client l'indique avant chaque dépôt : en mode
-> analysé, la première ligne devient
+> analysé, la première ligne devient une bannière :
 > `ardoise : Instance : <nom> (mode analysé — le serveur accède au contenu en clair pendant l'analyse)`.
 
 ## Cas d'usage
@@ -84,8 +86,9 @@ $ ardoise get - < identifiant.txt
 10.0.0.7 - GET /admin 500
 ```
 
-Le marquage de l'instance est préfixé automatiquement. Pour passer l'identifiant en
-argument, il faut l'expliciter avec `--argument` :
+Le marquage de l'instance est préfixé automatiquement.
+
+Pour passer l'identifiant en argument, il faut l'expliciter avec `--argument` :
 
 ```console
 $ ardoise get --argument ny7kxibdkni2#J7xwf_Zc3aEuUn35gn3WZK8y38zQ40RrVLPYPoE_O9k
@@ -99,12 +102,15 @@ $ ardoise get - < id.txt | sh -n
 ```
 
 Une ardoise en lecture unique déjà consommée (ou expirée, ou inexistante) renvoie
-toujours la même réponse, pour ne pas révéler d'information par recoupement :
+toujours la même réponse aux autres utilisateurs , pour ne pas révéler d'information par recoupement :
 
 ```console
 $ ardoise get --argument ny7kxibdkni2#J7xwf...
 ardoise : ardoise inexistante, expirée ou déjà consommée   # (code de sortie 5)
 ```
+Mais une ardoise déjà récupéré par un client reste chiffrée en cache.
+Et ce pour permettre de rejouer la commande et de changer les paramètres, par
+exemple : vérifier le contenu, le piper vers une autre commande, etc.
 
 ### 3. Restreindre la lecture à une personne ou un groupe
 
@@ -145,7 +151,7 @@ script), le dépôt est interrompu :
 ```console
 $ printf 'aws_secret=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n' | ardoise
 ardoise : secret détecté : secret, ligne 1 (« wJal… »)
-ardoise : dépôt interrompu : aucun terminal disponible pour confirmer   # (code de sortie 4)
+Poursuivre le dépôt malgré N secret(s) détecté(s) ? [o/N]
 ```
 
 Un authentifiant se stocke dans un coffre-fort de mots de passe, pas dans une
@@ -170,6 +176,9 @@ Mots : cercle-gestuel-ethnie-carbone-aviser
 code de rappel astreinte
 ```
 
+Attention, le chiffrement est plus fragile, la clé est plus courte pour pouvoir
+être encodée en 5 mots mémorisable.
+
 ### 7. Purger le cache local
 
 ```console
@@ -186,12 +195,13 @@ Pour participer au chiffrement multi-destinataires (la clé de contenu est envel
 sous la clé publique X25519 de chaque destinataire) :
 
 ```console
-$ ardoise cle --generer --fichier alice.cle
-Clé privée écrite dans alice.cle (0600). La clé publique ci-dessous rejoint l'annuaire de l'entité :
+$ ardoise cle --generer --fichier alice
+Clé privée écrite dans alice (0600). La clé publique ci-dessous rejoint l'annuaire de l'entité :
 Yy14rGH9zKBnpt/Hqd6B552ZXPoS3Jw7wQdNlBTmd3Q=
 ```
 
-Une clé privée existante n'est jamais écrasée.
+Votre certificat est dès alors présent sur le serveur et d'autres personnes
+peuvent passer le --pour en argument avec votre ID.
 
 ## Comprendre l'identifiant
 
@@ -252,7 +262,7 @@ Politique effective :
 Configuration conforme aux attentes II 901. Aucune incohérence détectée.
 ```
 
-Une configuration en deçà des attentes est refusée avec le détail des écarts (code de
+Une configuration en deçà des attentes indique le détail des écarts (code de
 sortie 1) :
 
 ```console
@@ -271,7 +281,7 @@ Configuration NON conforme aux attentes II 901 :
 Aucune incohérence détectée.
 ```
 
-### Conteneur
+### Déploiement en conteneur
 
 ```console
 $ docker run -v /etc/ardoise:/etc/ardoise:ro ardoise:latest
@@ -280,7 +290,7 @@ $ docker run -v /etc/ardoise:/etc/ardoise:ro ardoise:latest
 L'image OCI est basée sur Red Hat UBI micro, s'exécute en non-root, avec un système
 de fichiers racine en lecture seule et `CAP_DROP ALL`.
 
-## Schémas de chiffrement
+## Schémas de chiffrement supportés
 
 | Schéma | Octet | Principe |
 |---|---|---|
