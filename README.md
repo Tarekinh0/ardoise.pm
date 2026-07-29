@@ -2,33 +2,38 @@
 
 Service interne d'échange éphémère de texte pour équipes d'administration.
 
-## À quoi ça sert
+Les administrateurs échangent quotidiennement des fragments de texte : une trace
+réseau à faire analyser par un collègue, un extrait de log applicatif à transmettre
+à l'éditeur, une commande complexe à faire relire avant exécution sur un équipement
+sensible, le résultat d'un diagnostic qu'on veut transmettre sans capture d'écran,
+un dump de configuration à comparer entre deux sites. Sans outil interne, ces
+contenus finissent sur des pastebins publics — indexés et collectés par des tiers —
+ou transitent par des canaux de contournement qui échappent au périmètre de sécurité.
 
-Les administrateurs s'échangent des fragments de texte toute la journée : extraits
-de journaux, portions de configuration, commandes à faire relire. Faute d'outil
-interne, ces contenus finissent sur des pastebins publics — indexés et collectés par
-des tiers — ou transitent par des canaux de contournement (transfert vers la
-bureautique) qui échappent au périmètre de sécurité du SI d'administration.
+**ardoise** est un binaire Go unique qui dépose et récupère des blocs de texte sur
+une instance maîtrisée. Le contenu est chiffré, horodaté et détruit à échéance. Une
+ardoise s'écrit une fois, se lit, puis disparaît. Ce n'est ni un coffre-fort de
+secrets, ni un serveur de fichiers, ni une archive.
 
-**ardoise** referme cette brèche : un binaire Go unique qui dépose et récupère des
-blocs de texte sur une instance maîtrisée. Le contenu est chiffré, horodaté, et
-détruit à échéance. Aucune archive, aucun listage, aucune recherche.
+Pourquoi ne pas utiliser un stockage réseau ? Parce qu'avec un partage NFS ou
+SharePoint, l'échange le plus simple — « tiens, regarde ce log » — devient : créer
+un dossier, y déposer le fichier, positionner les droits, transmettre le chemin au
+destinataire, puis penser à supprimer le fichier. Si le contenu est sensible, il
+faut en plus le chiffrer manuellement et transmettre la clé par un second canal.
+Pour un échange de quelques minutes, ce coût de friction est rédhibitoire.
 
-Ce n'est **ni un coffre-fort de secrets, ni un serveur de fichiers, ni une archive** :
-une ardoise s'écrit une fois, se lit, puis disparaît.
+Un pastebin privé, sans compromis entre ergonomie et confidentialité — y compris
+pour les informations sensibles d'administration.
 
-## Ce qui le distingue
-
-- **Éphémère par construction** — chaque ardoise a une durée de vie ; aucune option ne
-  permet la conservation illimitée.
-- **Autodestruction à la première lecture** (au choix de l'émetteur, ou imposée par l'instance).
-- **Aucun compte, aucun listage, aucune recherche** — lister reviendrait à constituer
-  l'inventaire que le produit refuse de tenir.
-- **Chiffrement de bout en bout** en mode aveugle — la clé vit dans l'identifiant, côté
-  client, et ne parvient jamais au serveur.
-- **Journalisation des actes, jamais des contenus** — métadonnées seules, chaînage optionnel.
-- **Binaire unique, hors-ligne** — client et serveur dans le même exécutable statique,
-  builds signés et reproductibles.
+- Durée de vie limitée : chaque ardoise expire automatiquement, sans option de
+  conservation illimitée.
+- Autodestruction à la première lecture, au choix de l'émetteur ou imposée par
+  l'instance.
+- Chiffrement de bout en bout en mode aveugle : la clé est portée par l'identifiant
+  côté client et n'est jamais transmise au serveur.
+- Aucun compte, aucun listage, aucune recherche.
+- Journalisation des actes uniquement (métadonnées), jamais du contenu.
+- Binaire statique unique contenant le client et le serveur.
 
 ## Les deux modes
 
@@ -48,8 +53,8 @@ peut jamais l'affaiblir.
 ## Cas d'usage
 
 Les lignes d'information (politique, marquage, durée) sont écrites sur **stderr** ;
-l'identifiant et le contenu restitué vont sur **stdout** — d'où la composition propre
-avec des tubes Unix. Les sorties ci-dessous sont celles réellement émises par le binaire.
+l'identifiant et le contenu restitué vont sur **stdout**, ce qui permet de composer
+naturellement avec des tubes Unix.
 
 ### 1. Déposer et partager un extrait de journal
 
@@ -62,8 +67,10 @@ ny7kxibdkni2#J7xwf_Zc3aEuUn35gn3WZK8y38zQ40RrVLPYPoE_O9k
 ```
 
 Le contenu est chiffré localement puis déposé ; la dernière ligne (stdout) est
-l'**identifiant** à transmettre. `-t 30m` fixe la durée de vie, `-b` détruit le contenu
-à la première lecture.
+l'**identifiant** à transmettre. `-t 30m` fixe la durée de vie, `-b` détruit l'ardoise
+côté serveur à la première lecture. Le destinataire conserve une copie chiffrée dans
+son cache local, ce qui lui permet de relire le contenu (par exemple si sa commande
+en aval a échoué).
 
 ### 2. Récupérer un contenu
 
@@ -91,8 +98,8 @@ vérifier la syntaxe d'un script sans l'exécuter :
 $ ardoise get - < id.txt | sh -n
 ```
 
-Une ardoise en lecture unique déjà consommée (ou expirée, ou inexistante) renvoie la
-même réponse, pour ne rien livrer par recoupement :
+Une ardoise en lecture unique déjà consommée (ou expirée, ou inexistante) renvoie
+toujours la même réponse, pour ne pas révéler d'information par recoupement :
 
 ```console
 $ ardoise get --argument ny7kxibdkni2#J7xwf...
@@ -101,8 +108,7 @@ ardoise : ardoise inexistante, expirée ou déjà consommée   # (code de sortie
 
 ### 3. Restreindre la lecture à une personne ou un groupe
 
-Sans destinataire, « l'ardoise est au porteur » : quiconque authentifié détenant
-l'identifiant peut lire. Avec `--pour`, la lecture est réservée aux identités désignées ;
+Sans destinataire, tout utilisateur authentifié détenant l'identifiant peut lire. Avec `--pour`, la lecture est réservée aux identités désignées ;
 un lecteur non désigné reçoit la même réponse qu'une ardoise inexistante.
 
 ```console
@@ -142,7 +148,8 @@ ardoise : secret détecté : secret, ligne 1 (« wJal… »)
 ardoise : dépôt interrompu : aucun terminal disponible pour confirmer   # (code de sortie 4)
 ```
 
-Un authentifiant relève d'un coffre-fort de mots de passe, pas d'une ardoise.
+Un authentifiant se stocke dans un coffre-fort de mots de passe, pas dans une
+ardoise.
 
 ### 6. Récupérer par 5 mots mnémoniques
 
@@ -198,11 +205,11 @@ ny7kxibdkni2 # J7xwf_Zc3aEuUn35gn3WZK8y38zQ40RrVLPYPoE_O9k
 L'id serveur fait 12 caractères (`a-z`, `2-9`). Le fragment après le `#` est la **clé** :
 elle n'est **jamais transmise au serveur**. Un identifiant complet équivaut donc au
 contenu — il se transmet par un canal maîtrisé. En multi-destinataires, le fragment vaut
-`#md` : une sentinelle, pas une clé.
+`#md` : ce n'est pas une clé, le déchiffrement passe par X25519.
 
 ## Codes de sortie
 
-Pour scripter autour de `ardoise` :
+Pour utiliser `ardoise` dans des scripts :
 
 | Code | Signification |
 |---|---|
@@ -226,8 +233,8 @@ instance « ardoise-adm-zone-reseau » : écoute sur https://127.0.0.1:8443 (mod
 ### Vérifier une configuration — et sa conformité II 901
 
 `serve --verifier` analyse la configuration, affiche chaque option avec son identifiant
-et son niveau ANSSI (`R+`, `R`, `R-`, `R--`), **conclut d'emblée sur la conformité aux
-minima de l'II 901**, signale toute incohérence, puis rend la main sans démarrer le
+et son niveau ANSSI (`R+`, `R`, `R-`, `R--`), rend un verdict de conformité aux
+attentes de l'II 901, signale toute incohérence, puis rend la main sans démarrer le
 service :
 
 ```console
@@ -242,10 +249,10 @@ Politique effective :
   Journalisation    JOURN-1  (R+)  collecteur central, entrées chaînées
   Transport         TLS-2    (R)   TLS 1.3, épinglage actif
   Marquage          MARQ-1   (R)   « DIFFUSION RESTREINTE »
-Configuration conforme aux minima II 901. Aucune incohérence détectée.
+Configuration conforme aux attentes II 901. Aucune incohérence détectée.
 ```
 
-Une configuration en deçà des minima est refusée avec le détail des écarts (code de
+Une configuration en deçà des attentes est refusée avec le détail des écarts (code de
 sortie 1) :
 
 ```console
@@ -255,7 +262,7 @@ Politique effective :
   ...
   Transport         TLS-3    (R-)  TLS 1.2
   Marquage          MARQ-2   (R--) aucun marquage
-Configuration NON conforme aux minima II 901 :
+Configuration NON conforme aux attentes II 901 :
   - identification : AUTH-4 (déclarative) sous le minimum AUTH-3
   - journalisation : JOURN-4 sous le minimum JOURN-2 (collecteur central, R46/R47)
   - transport : TLS-3 (TLS 1.2) sous le minimum TLS-2 (TLS 1.3, R24)
@@ -270,8 +277,8 @@ Aucune incohérence détectée.
 $ docker run -v /etc/ardoise:/etc/ardoise:ro ardoise:latest
 ```
 
-Image OCI sur Red Hat UBI micro, non-root, système de fichiers racine en lecture seule,
-`CAP_DROP ALL`.
+L'image OCI est basée sur Red Hat UBI micro, s'exécute en non-root, avec un système
+de fichiers racine en lecture seule et `CAP_DROP ALL`.
 
 ## Schémas de chiffrement
 
@@ -282,12 +289,12 @@ Image OCI sur Red Hat UBI micro, non-root, système de fichiers racine en lectur
 | **CHIF-5** | `0x06` | 5 mots BIP39 + Argon2id (`--mots`) |
 | **CHIF-MD** | `0x05` | Multi-destinataires, enveloppe X25519 par destinataire |
 
-Chiffrement authentifié AES-256-GCM, clé unique par ardoise. Détails complets :
-[`docs/dat.md`](docs/dat.md) annexe B.
+Le chiffrement utilise AES-256-GCM authentifié, avec une clé unique par ardoise.
+Détails complets : [`docs/dat.md`](docs/dat.md) annexe B.
 
 ## Conformité
 
-ardoise est conçu pour être déployé depuis un réseau d'administration standard jusqu'aux
+ardoise se déploie aussi bien sur un réseau d'administration standard que dans les
 environnements relevant de l'**II 901** (Diffusion Restreinte) et de l'**IGI 1300** (SI
 classifiés). La configuration de chaque instance s'aligne sur les identifiants d'options
 du guide **ANSSI-PA-022**, et `serve --verifier` (ci-dessus) rend un verdict de
@@ -296,7 +303,8 @@ conformité II 901 versable à un dossier d'homologation. Voir [`docs/dat.md`](d
 
 ## Installation et vérification
 
-Paquets signés, builds reproductibles, installation hors ligne native.
+Les paquets sont signés, les builds sont reproductibles et l'installation hors ligne
+est native.
 
 ```console
 $ ardoise version
