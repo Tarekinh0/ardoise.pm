@@ -19,7 +19,7 @@ COPY internal/     ./internal/
 
 # Compilation statique, reproductible (ES-9, ADR-001, ADR-008)
 # CGO_ENABLED=0, -trimpath, -buildvcs=false, -ldflags="-s -w -buildid="
-ARG VERSION="0.2.0"
+ARG VERSION="0.2.1"
 ARG ID_COMPILATION="inconnu"
 ARG SOURCE_DATE_EPOCH="0"
 

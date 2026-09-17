@@ -80,7 +80,7 @@ jobs:
           CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build \
             -trimpath \
             -ldflags "-s -w -buildid= \
-              -X ardoise.pm/internal/cli.Version=0.2.0 \
+              -X ardoise.pm/internal/cli.Version=0.2.1 \
               -X ardoise.pm/internal/cli.IDCompilation=${ID_COMP}" \
             -o ardoise ./cmd/ardoise
           sha256sum ardoise | tee ardoise.sha256
