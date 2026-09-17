@@ -147,7 +147,7 @@ jobs:
       - name: Assembler le tarball hors ligne (DPO-P-002-5)
         run: |
           mkdir -p dist/ardoise
-          cp ardoise ardoise.sig ardoise.pub ardoise.spdx.json ardoise.1 dist/ardoise/
+          cp ardoise ardoise.sig ardoise.pub ardoise.spdx.json ardoise.1 ardoise.json.exemple dist/ardoise/
           # Générer verifier.sh avec l'empreinte SHA-256 gravée
           HASH=$(sha256sum ardoise | cut -d' ' -f1)
           cat > dist/ardoise/verifier.sh << VERIFIER
@@ -211,6 +211,16 @@ jobs:
             echo "  SBOM présent dans ardoise.spdx.json"
           fi
 
+          # Installer la page de manuel (best effort) : /usr/local si root, sinon ~/.local
+          if [ "\$(id -u)" = "0" ]; then
+            MAN_DIR="/usr/local/share/man/man1"
+          else
+            MAN_DIR="\$HOME/.local/share/man/man1"
+          fi
+          if mkdir -p "\$MAN_DIR" 2>/dev/null && cp ardoise.1 "\$MAN_DIR/ardoise.1" 2>/dev/null; then
+            echo "Page de manuel installée dans \$MAN_DIR."
+          fi
+
           echo ""
           echo "=== Vérification réussie ==="
           echo "Le binaire ardoise est intègre et authentique."
@@ -265,6 +275,7 @@ jobs:
             ardoise-v${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz
             ardoise.spdx.json
             ardoise.1
+            ardoise.json.exemple
           body: |
             ## Ardoise v${{ steps.version.outputs.VERSION }}
 
@@ -294,3 +305,6 @@ jobs:
             ardoise man        # affiche le manuel complet
             man ./ardoise.1    # ou via la page troff livrée
             ```
+
+            ### Configuration
+            Un modèle complet de configuration d'instance, toutes options incluses, est fourni : `ardoise.json.exemple`.

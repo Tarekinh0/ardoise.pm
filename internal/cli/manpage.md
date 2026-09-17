@@ -159,6 +159,8 @@ Le mécanisme est imposé par l'instance ; le client fournit le matériel corres
 
 Format JSON strict : tout champ inconnu est une erreur ; toute option omise prend sa valeur la plus prudente — c'est-à-dire le mécanisme le plus robuste, la borne la plus courte, la surface la plus réduite. Chaque option correspond à un identifiant du document d'architecture, rappelé en commentaire.
 
+Un modèle complet et commenté, à recopier et adapter, est livré dans l'archive de release sous le nom `ardoise.json.exemple` : il présente toutes les sections et toutes les options, énumère pour chacune toutes les valeurs admises, et fournit en blocs commentés les variantes exclusives (mode analyse, jeton, disque-chiffré, journal fichier, TLS 1.2, etc.). Les commentaires `//` doivent être retirés avant usage.
+
 ```json
 {
   "instance": {
@@ -321,6 +323,7 @@ Ce fichier est destiné à être poussé par la télédistribution de l'entité 
 | Chemin | Rôle |
 |---|---|
 | `/etc/ardoise/ardoise.json` | Configuration de l'instance |
+| `ardoise.json.exemple` | Modèle de configuration de l'instance, livré dans l'archive de release |
 | `/etc/ardoise/client.json` | Configuration client à l'échelle du poste |
 | `~/.config/ardoise/client.json` | Configuration client de l'utilisateur |
 | `~/.cache/ardoise/` | Cache local, si l'instance l'autorise |

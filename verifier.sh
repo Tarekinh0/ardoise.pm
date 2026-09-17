@@ -105,6 +105,16 @@ else
     echo "  SBOM présent dans ardoise.spdx.json"
 fi
 
+# Installation de la page de manuel (best effort) : /usr/local si root, sinon ~/.local
+if [ "$(id -u)" = "0" ]; then
+    MAN_DIR="/usr/local/share/man/man1"
+else
+    MAN_DIR="${HOME}/.local/share/man/man1"
+fi
+if mkdir -p "$MAN_DIR" 2>/dev/null && cp ardoise.1 "$MAN_DIR/ardoise.1" 2>/dev/null; then
+    echo "Page de manuel installée dans $MAN_DIR."
+fi
+
 echo ""
 echo "${GREEN}=== Vérification réussie ===${NC}"
 echo "Le binaire ardoise est intègre et authentique."

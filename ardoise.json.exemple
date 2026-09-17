@@ -1,0 +1,205 @@
+// ardoise.json.exemple — modèle commenté de configuration d'instance ardoise.pm
+// ============================================================================
+// Ce fichier n'est PAS du JSON strict : les commentaires « // » doivent être
+// retirés avant usage (la configuration est en JSON strict, tout champ inconnu
+// est une erreur). Emplacement attendu : /etc/ardoise/ardoise.json
+//
+// Toute option omise prend sa valeur la plus prudente. Pour chaque option,
+// TOUTES les valeurs admises sont listées en commentaire, et les variantes
+// exclusives (mode analyse, jeton, disque-chiffré, etc.) sont fournies en
+// blocs commentés, à recopier à la place du bloc correspondant.
+//
+// Configuration principale ci-dessous : instance en mode aveugle, mTLS,
+// mémoire vive, lecture unique au choix, journal vers un collecteur syslog+TLS.
+// ============================================================================
+{
+  "instance": {
+    // nom (chaîne) : OBLIGATOIRE. Identifie l'instance dans les journaux.
+    "nom": "ardoise-adm-zone-reseau",
+
+    // mode : "aveugle" (défaut, le serveur ne voit jamais le clair)
+    //      | "analyse" (le serveur analyse avant chiffrement, CHIF-4)
+    "mode": "aveugle",
+
+    // ecoute (chaîne) : adresse d'écoute hôte:port.
+    //   OBLIGATOIRE si l'option --ecoute n'est pas fournie.
+    "ecoute": "10.0.12.4:8443"
+  },
+
+  "auth": {
+    // mecanisme : "mtls-materiel" (AUTH-1, R+, défaut — exige ac_clients)
+    //           | "mtls"          (AUTH-2, R  — exige ac_clients)
+    //           | "jeton"         (AUTH-3, R- — exige jetons)
+    //           | "declaratif"    (AUTH-4, R-- — sans fichier)
+    "mecanisme": "mtls",
+
+    // ac_clients : PEM de l'AC des certificats clients.
+    //   Requis avec "mtls-materiel" et "mtls" ; refusé avec les autres.
+    "ac_clients": "/etc/ardoise/ac-clients.pem",
+
+    // champ_identite : "CN" (défaut) | "SAN:email" | "SAN:dns" | "SAN:uri"
+    "champ_identite": "CN",
+
+    // jetons : table JSON { "identité": "SHA-256 en hexadécimal" }, droits 0600.
+    //   Requis avec "jeton" ; refusé sinon.
+    //   Exemple : { "alice.durand": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08" }
+    "jetons": "",
+
+    // groupes : table JSON { "@groupe": ["membre1", "membre2"] } pour --pour.
+    //   Refusé sous AUTH-4 ("declaratif").
+    //   Exemple : { "@admins": ["alice.durand", "bob.martin"] }
+    "groupes": ""
+
+    // --- VARIANTE AUTH-3 « jeton » (remplacer le bloc auth ci-dessus) -------
+    // "mecanisme":      "jeton",
+    // "ac_clients":     "",
+    // "champ_identite": "CN",
+    // "jetons":         "/etc/ardoise/jetons.json",
+    // "groupes":        "/etc/ardoise/groupes.json"
+    //
+    // --- VARIANTE AUTH-4 « declaratif » (aucun fichier) --------------------
+    // "mecanisme":      "declaratif",
+    // "ac_clients":     "",
+    // "champ_identite": "CN",
+    // "jetons":         "",
+    // "groupes":        ""
+    // -----------------------------------------------------------------------
+  },
+
+  "contenu": {
+    // chiffrement : "cle"     (CHIF-2, défaut en mode aveugle)
+    //             | "serveur" (CHIF-4, mode "analyse" uniquement)
+    //   En mode "analyse", seul "serveur" est admis ; en mode "aveugle",
+    //   "serveur" est refusé. CHIF-5 (--mots) et CHIF-MD (--annuaire) sont
+    //   des choix exclusivement client, jamais des valeurs de configuration.
+    "chiffrement": "cle",
+
+    // taille_max : notation lisible ("512o" | "256Kio" | "1Mio"). Défaut "256Kio".
+    "taille_max": "256Kio"
+  },
+
+  "retention": {
+    // support : "memoire" (RET-2, défaut) | "disque-chiffre" (RET-3)
+    "support": "memoire",
+
+    // lecture_unique : "imposee" (RET-1, défaut) | "au-choix" | "interdite"
+    "lecture_unique": "au-choix",
+
+    // duree_max : "1h" | "24h" | "168h" (plafond absolu 168 h, ADR-003).
+    //   Défaut "1h" (TTL-1, R+).
+    "duree_max": "24h",
+
+    // duree_defaut : durée appliquée sans --duree.
+    //   Défaut : la plus petite de 1 h et duree_max.
+    "duree_defaut": "1h",
+
+    // repertoire : requis avec "disque-chiffre", refusé avec "memoire".
+    //   Défaut "/var/lib/ardoise".
+    "repertoire": "",
+
+    // cle_magasin : chemin de la clé du magasin sur disque
+    //   (32 octets bruts ou 64 caractères hexadécimaux, droits 0600).
+    //   Requis avec "disque-chiffre", refusé avec "memoire".
+    "cle_magasin": ""
+
+    // --- VARIANTE RET-3 « disque-chiffre » ---------------------------------
+    // "support":        "disque-chiffre",
+    // "lecture_unique": "imposee",
+    // "duree_max":      "168h",
+    // "duree_defaut":   "1h",
+    // "repertoire":     "/var/lib/ardoise",
+    // "cle_magasin":    "/etc/ardoise/magasin.cle"
+    // -----------------------------------------------------------------------
+  },
+
+  "cache": {
+    // politique : "interdit" (CACHE-1, défaut) | "borne" (CACHE-2) | "libre" (CACHE-3)
+    "politique": "interdit"
+  },
+
+  "analyse": {
+    // secrets_client : "bloquer" (défaut) | "demander" | "signaler" | "desactive"
+    "secrets_client": "bloquer",
+
+    // icap_url : "icap://hôte:port/service".
+    //   Requis en mode "analyse" (sinon démarrage impossible) ; refusé en "aveugle".
+    "icap_url": "",
+
+    // icap_delai : "10s" (défaut) | "30s". Au-delà, dépôt refusé (fail-closed).
+    "icap_delai": "10s",
+
+    // icap_regles : jeu de règles transmis dans l'en-tête X-Ardoise-Regles.
+    //   Chaîne vide : aucune règle supplémentaire.
+    "icap_regles": ""
+
+    // --- VARIANTE mode "analyse" (avec le bloc instance : "mode": "analyse",
+    //     et contenu : "chiffrement": "serveur") ------------------------------
+    // "secrets_client": "bloquer",
+    // "icap_url":       "icap://icap.adm.interne:1344/reqmod",
+    // "icap_delai":     "30s",
+    // "icap_regles":    "/etc/ardoise/icap-regles.txt"
+    // -----------------------------------------------------------------------
+  },
+
+  "journal": {
+    // destination : "aucun" (JOURN-4, défaut)
+    //             | "fichier" (JOURN-3)
+    //             | "syslog+tls://hôte:port" (JOURN-1 / JOURN-2)
+    "destination": "syslog+tls://journal.adm.interne:6514",
+
+    // chainage : chaînage cryptographique SHA-256 (JOURN-1, R+).
+    //   Défaut true si destination = collecteur, false sinon.
+    //   Explicite requis avec "fichier" ou "aucun".
+    "chainage": true,
+
+    // fichier : requis avec destination "fichier", refusé sinon.
+    //   Une entrée JSON par ligne, ajout seul, droits 0600.
+    "fichier": "",
+
+    // ac : AC du collecteur syslog+TLS au format PEM.
+    //   Défaut : magasin système. Refusé sans destination de collecte.
+    "ac": ""
+
+    // --- VARIANTE JOURN-3 « fichier local » --------------------------------
+    // "destination": "fichier",
+    // "chainage":    true,
+    // "fichier":     "/var/log/ardoise/journal.jsonl",
+    // "ac":          ""
+    //
+    // --- VARIANTE JOURN-4 « aucun journal » --------------------------------
+    // "destination": "aucun",
+    // "chainage":    false,
+    // "fichier":     "",
+    // "ac":          ""
+    // -----------------------------------------------------------------------
+  },
+
+  "transport": {
+    // certificat, cle : OBLIGATOIRES — le serveur refuse de démarrer sans.
+    "certificat": "/etc/ardoise/instance.pem",
+    "cle": "/etc/ardoise/instance.key",
+
+    // version_min : "1.3" (TLS-2, défaut) | "1.2" (TLS-3).
+    //   TLS 1.2 restreint les suites à ECDHE + AES-GCM/ChaCha20-Poly1305.
+    "version_min": "1.3",
+
+    // epinglage : true (défaut) = seule l'AC déclarée dans auth.ac_clients
+    //   est reconnue, aucune autre (y compris publique).
+    "epinglage": true
+  },
+
+  "marquage": {
+    // actif : true (MARQ-1, défaut) | false (MARQ-2).
+    //   Actif, le libellé est préfixé à chaque contenu restitué.
+    "actif": true,
+
+    // libelle : texte du marquage. OBLIGATOIRE lorsque actif.
+    //   Exemples : "DIFFUSION RESTREINTE", "CONFIDENTIEL", "SECRET".
+    "libelle": "DIFFUSION RESTREINTE"
+
+    // --- VARIANTE MARQ-2 « marquage désactivé » ----------------------------
+    // "actif":   false,
+    // "libelle": ""
+    // -----------------------------------------------------------------------
+  }
+}

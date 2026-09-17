@@ -1,0 +1,19 @@
+{
+  "instance": {
+    "nom": "ardoise-jeton",
+    "mode": "aveugle",
+    "ecoute": "0.0.0.0:8443"
+  },
+  "auth": {
+    "mecanisme": "jeton",
+    "jetons": "/etc/ardoise/jetons.json"
+  },
+  "transport": {
+    "certificat": "/etc/ardoise/instance.pem",
+    "cle": "/etc/ardoise/instance.key"
+  },
+  "marquage": {
+    "actif": true,
+    "libelle": "DIFFUSION RESTREINTE"
+  }
+}
