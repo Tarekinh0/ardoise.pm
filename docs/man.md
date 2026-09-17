@@ -1,4 +1,4 @@
-ARDOISE(1) — Manuel de l'utilisateur et de l'administrateur — ardoise.pm v0.1
+ARDOISE(1) — Manuel de l'utilisateur et de l'administrateur — ardoise.pm v0.2
 
 ---
 

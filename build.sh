@@ -4,7 +4,7 @@
 set -eu
 cd "$(dirname "$0")"
 
-VERSION="${ARDOISE_VERSION:-0.1.0-dev}"
+VERSION="${ARDOISE_VERSION:-0.2.0}"
 ID_COMPILATION="${ARDOISE_ID_COMPILATION:-$(git rev-parse --short=12 HEAD 2>/dev/null || echo inconnu)}"
 
 CGO_ENABLED=0 go build \

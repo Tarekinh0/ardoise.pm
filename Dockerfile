@@ -5,7 +5,7 @@
 # ============================================================
 # Stage 1 : Compilation Go statique et reproductible (SRQ-P002-5)
 # ============================================================
-FROM golang:1.24-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651 AS builder
+FROM golang:1.26-bookworm@sha256:9fdc884aacc3bec89b20ffc69f4bb369c78210e3e4f600387b5128b12c199f81 AS builder
 
 WORKDIR /build
 
@@ -19,7 +19,7 @@ COPY internal/     ./internal/
 
 # Compilation statique, reproductible (ES-9, ADR-001, ADR-008)
 # CGO_ENABLED=0, -trimpath, -buildvcs=false, -ldflags="-s -w -buildid="
-ARG VERSION="0.1.0"
+ARG VERSION="0.2.0"
 ARG ID_COMPILATION="inconnu"
 ARG SOURCE_DATE_EPOCH="0"
 

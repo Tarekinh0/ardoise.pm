@@ -13,7 +13,7 @@ import (
 // (voir build.sh) : la version publiée et l'identifiant de compilation
 // reproductible (ES-9, builds reproductibles).
 var (
-	Version       = "0.1.0-dev"
+	Version       = "0.2.0"
 	IDCompilation = "inconnu"
 )
 
