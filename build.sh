@@ -1,7 +1,6 @@
 #!/bin/sh
 # Construction du binaire ardoise — statique, reproductible (ES-9, DIST-1).
 # La chaîne d'approvisionnement complète (SBOM, signatures, provenance)
-# arrive en phase F ; ce script reste volontairement minimal.
 set -eu
 cd "$(dirname "$0")"
 
