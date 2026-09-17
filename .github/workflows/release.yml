@@ -147,7 +147,7 @@ jobs:
       - name: Assembler le tarball hors ligne (DPO-P-002-5)
         run: |
           mkdir -p dist/ardoise
-          cp ardoise ardoise.sig ardoise.pub ardoise.spdx.json ardoise.1 ardoise.json.exemple dist/ardoise/
+          cp ardoise ardoise.sig ardoise.pub ardoise.spdx.json ardoise.1 ardoise.json.exemple ardoise-jeton.json.exemple dist/ardoise/
           # Générer verifier.sh avec l'empreinte SHA-256 gravée
           HASH=$(sha256sum ardoise | cut -d' ' -f1)
           cat > dist/ardoise/verifier.sh << VERIFIER
@@ -276,6 +276,7 @@ jobs:
             ardoise.spdx.json
             ardoise.1
             ardoise.json.exemple
+            ardoise-jeton.json.exemple
           body: |
             ## Ardoise v${{ steps.version.outputs.VERSION }}
 
@@ -307,4 +308,6 @@ jobs:
             ```
 
             ### Configuration
-            Un modèle complet de configuration d'instance, toutes options incluses, est fourni : `ardoise.json.exemple`.
+            Des modèles de configuration d'instance sont fournis :
+            - `ardoise.json.exemple` : modèle complet et commenté, toutes options et variantes ;
+            - `ardoise-jeton.json.exemple` : configuration simplifiée AUTH-3 (jetons) en mode aveugle.
